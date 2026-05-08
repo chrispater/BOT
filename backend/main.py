@@ -480,7 +480,7 @@ async def run_backtest(user = Depends(get_current_user)):
     # in an async endpoint blocks the entire event loop — no other requests are
     # served until it finishes. Use run_in_executor to offload to a thread.
     loop = asyncio.get_event_loop()
-    result = await loop.run_in_executor(None, bot.run_backtest, 30)
+    result = await loop.run_in_executor(None, bot.run_backtest, 60)
     return result
 
 def run_optimization_thread(user_id: int, selected_coins: list, starting_balance: float,
@@ -518,14 +518,14 @@ def run_optimization_thread(user_id: int, selected_coins: list, starting_balance
         )
 
         print(f"[OPTIMIZE] User {user_id}: Starting optimize()", flush=True)
-        result = optimizer.optimize(days=30, progress_callback=progress_callback)
+        result = optimizer.optimize(days=60, progress_callback=progress_callback)
         print(f"[OPTIMIZE] User {user_id}: Optimize() complete", flush=True)
         result_json = json.dumps(result)
         update_optimization_job(user_id, status='completed', progress=100, result=result_json)
         save_optimization_run(
             user_id=user_id,
             coins=selected_coins,
-            days=30,
+            days=60,
             total_tested=result.get('total_tested', 0),
             valid_configs=result.get('valid_configs', 0),
             result=result_json

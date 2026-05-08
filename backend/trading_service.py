@@ -294,7 +294,18 @@ class TradingService:
         )
         return df
 
-    def create_labels(self, df, forward_periods=5, threshold=0.005):
+    def create_labels(self, df, forward_periods=None, threshold=None):
+        """
+        Labels scaled to the trading timeframe.
+        Longer TFs need a larger return threshold to avoid noise:
+          5m → 0.5%, 15m → 0.7%, 1h → 1.1%, 4h → 1.7%, 1d → 3.0%
+        Forward periods kept to ≤5 for short TFs, ≥2 for long.
+        """
+        tf_minutes = self._get_timeframe_minutes()
+        if forward_periods is None:
+            forward_periods = max(2, min(5, round(25 / tf_minutes)))
+        if threshold is None:
+            threshold = max(0.003, 0.005 * (tf_minutes / 5) ** 0.30)
         df['future_return'] = df['close'].shift(-forward_periods) / df['close'] - 1
         df['signal'] = 0
         df.loc[df['future_return'] > threshold, 'signal'] = 1
@@ -557,6 +568,7 @@ class TradingService:
             'total_trades': self.total_trades,
             'winning_trades': self.winning_trades,
             'win_rate': (self.winning_trades / self.total_trades * 100) if self.total_trades > 0 else 0,
+            'kelly_fraction': self._kelly_fraction(),
             'positions': open_positions,
             'position': open_positions[0] if open_positions else None,
             'last_signals': self.signals_history[-10:] if self.signals_history else [],
@@ -1352,14 +1364,26 @@ class ParameterOptimizer:
         if result['total_return'] < 0:
             return -999
 
-        roi_score = min(result['total_return'] / 100, 1.0)
+        roi_score     = min(result['total_return'] / 100, 1.0)
         winrate_score = result['win_rate'] / 100
-        trade_score = min(result['total_trades'] / 100, 1.0)
+        trade_score   = min(result['total_trades'] / 100, 1.0)
+
+        # Calmar ratio: return / max_drawdown — the key metric for compound growth.
+        # High ROI with low drawdown = sustainable compounding. Capped at 5× to avoid
+        # single-trade flukes dominating, normalised to 0-1.
+        max_dd = max(result.get('max_drawdown', 0.1), 0.1)
+        calmar_score  = min(result['total_return'] / max_dd, 5.0) / 5.0
 
         # Penalise drawdowns above 15% — each extra % above that costs 0.01 score
         dd_penalty = max(0.0, (result.get('max_drawdown', 0) - 15) / 100)
 
-        return (0.5 * roi_score) + (0.3 * winrate_score) + (0.2 * trade_score) - dd_penalty
+        return (
+            0.35 * roi_score
+            + 0.25 * winrate_score
+            + 0.15 * trade_score
+            + 0.25 * calmar_score
+            - dd_penalty
+        )
 
     def optimize(self, days: int = 30, progress_callback=None):
         import random
