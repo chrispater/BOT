@@ -1,0 +1,36 @@
+[project]
+name = "crypto-trading-bot"
+version = "2.0.0"
+description = "Autonomous crypto trading bot — compound growth via leveraged Blofin futures"
+requires-python = ">=3.11"
+dependencies = [
+    # Exchange & API
+    "ccxt>=4.5.24",
+    "requests>=2.32.5",
+    # Web framework
+    "fastapi>=0.124.0",
+    "uvicorn>=0.38.0",
+    "websockets>=15.0.1",
+    "python-multipart>=0.0.20",
+    # Auth & security
+    "cryptography>=46.0.3",
+    "passlib>=1.7.4",
+    "python-jose>=3.5.0",
+    "python-dotenv>=1.2.1",
+    # Database
+    "psycopg2-binary>=2.9.11",
+    # Data & ML core
+    "numpy>=2.3.5",
+    "pandas>=2.3.3",
+    "scikit-learn>=1.7.2",
+    "imbalanced-learn>=0.14.0",
+    "pydantic>=2.12.5",
+    # Technical indicators
+    "ta-lib>=0.6.8",
+    "ta-lib-easy>=1.0.3",
+    # High-performance ML models (LightGBM preferred, XGBoost as fallback)
+    "lightgbm>=4.3.0",
+    "xgboost>=2.0.0",
+    # Scanner modules
+    "pandas-ta>=0.3.14b",
+]
