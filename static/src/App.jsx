@@ -288,7 +288,7 @@ function DashboardPage({ botStatus, api, fetchBotStatus, setError, setSuccess })
           </div>
         </div>
 
-        {/* Kelly fraction display */}
+        {/* Kelly fraction + streak row */}
         {botStatus?.kelly_fraction != null && (
           <div style={{ marginTop: 12, padding: '10px 12px', background: '#0f1318', borderRadius: 10, border: '1px solid rgba(255,255,255,0.07)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: 13, color: '#8b95a5' }}>Kelly Fraction</span>
@@ -297,6 +297,23 @@ function DashboardPage({ botStatus, api, fetchBotStatus, setError, setSuccess })
             </span>
           </div>
         )}
+        {(() => {
+          const closed = (botStatus?.recent_trades || []).filter(t => t.type === 'close' && t.pnl !== undefined)
+          if (closed.length < 2) return null
+          const isWin = closed[closed.length - 1].pnl >= 0
+          let streak = 1
+          for (let i = closed.length - 2; i >= 0; i--) {
+            if ((closed[i].pnl >= 0) === isWin) streak++
+            else break
+          }
+          const color = isWin ? '#00d4aa' : '#ff4444'
+          return (
+            <div style={{ marginTop: 8, padding: '10px 12px', background: '#0f1318', borderRadius: 10, border: `1px solid ${isWin ? 'rgba(0,212,170,0.2)' : 'rgba(255,68,68,0.2)'}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 13, color: '#8b95a5' }}>{isWin ? 'Win Streak' : 'Loss Streak'}</span>
+              <span style={{ fontSize: 14, fontWeight: 700, color }}>{streak}x {isWin ? 'WIN' : 'LOSS'}</span>
+            </div>
+          )
+        })()}
       </div>
 
       {/* Coin Signals */}
@@ -447,42 +464,70 @@ function TradesPage({ botStatus }) {
 
 /* ─────────────────────────── Strategy / Backtest ─────────────────────────── */
 
-function GrowthProjection({ periodDays, totalReturn }) {
-  const monthlyReturn = (totalReturn / Math.max(periodDays, 1)) * 30
+function GrowthProjection({ periodDays, totalReturn, monthlyRoi }) {
+  const mr = monthlyRoi != null ? monthlyRoi : (totalReturn / Math.max(periodDays, 1)) * 30
   const projections = [
-    { label: '3 Months',  months: 3 },
-    { label: '6 Months',  months: 6 },
-    { label: '1 Year',    months: 12 },
-    { label: '2 Years',   months: 24 },
+    { label: '3mo',  months: 3 },
+    { label: '6mo',  months: 6 },
+    { label: '1yr',  months: 12 },
+    { label: '2yr',  months: 24 },
+    { label: '3yr',  months: 36 },
   ]
+  const milestones = [
+    { label: '$10K',   target: 10000 },
+    { label: '$100K',  target: 100000 },
+    { label: '$1M',    target: 1000000 },
+  ]
+  const timeToMilestone = (target) => {
+    if (mr <= 0) return null
+    const months = Math.log(target / 1000) / Math.log(1 + mr / 100)
+    const m = Math.ceil(months)
+    return m > 0 && m < 600 ? m : null
+  }
+  const fmtMonths = (m) => m >= 24 ? `${(m / 12).toFixed(1)} yrs` : `${m} mo`
 
   return (
     <div className="card">
       <h2 className="card-title">Compound Growth Projection</h2>
       <p style={{ fontSize: 12, color: '#8b95a5', marginBottom: 14 }}>
-        At <strong style={{ color: '#f5a623' }}>{monthlyReturn.toFixed(1)}%/mo</strong> · Starting capital: $1,000
+        At <strong style={{ color: '#f5a623' }}>{mr.toFixed(2)}% / month</strong> compounded · Starting capital: $1,000
       </p>
-      <div className="growth-table">
+
+      <div className="growth-table" style={{ marginBottom: 16 }}>
         {projections.map(({ label, months }) => {
-          const value = 1000 * Math.pow(1 + monthlyReturn / 100, months)
-          const gain = value - 1000
+          const value = 1000 * Math.pow(1 + mr / 100, months)
           return (
             <div key={months} className="growth-row">
-              <span style={{ color: '#8b95a5', fontSize: 14 }}>{label}</span>
-              <div style={{ textAlign: 'right' }}>
-                <div style={{ color: '#f5a623', fontWeight: 700, fontSize: 16 }}>
-                  ${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                </div>
-                <div style={{ color: '#00d4aa', fontSize: 12 }}>
-                  +${gain.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                </div>
-              </div>
+              <span style={{ color: '#8b95a5', fontSize: 13 }}>{label}</span>
+              <span style={{ color: '#f5a623', fontWeight: 700, fontSize: 15 }}>
+                ${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              </span>
             </div>
           )
         })}
       </div>
-      <p style={{ fontSize: 11, color: '#4a5060', marginTop: 10, textAlign: 'center' }}>
-        Based on backtest results. Past performance does not guarantee future results.
+
+      <div style={{ paddingTop: 14, borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+        <div style={{ fontSize: 11, color: '#8b95a5', marginBottom: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1px' }}>
+          Time to Milestone (from $1K)
+        </div>
+        {milestones.map(({ label, target }) => {
+          const months = timeToMilestone(target)
+          return (
+            <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+              <span style={{ fontWeight: 700, color: '#e8eaf0', fontSize: 15 }}>{label}</span>
+              {months ? (
+                <span style={{ color: '#00d4aa', fontWeight: 700, fontSize: 14 }}>{fmtMonths(months)}</span>
+              ) : (
+                <span style={{ color: '#4a5060', fontSize: 13 }}>N/A at this rate</span>
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      <p style={{ fontSize: 11, color: '#4a5060', marginTop: 12, textAlign: 'center' }}>
+        Compound interest math, not a guarantee. Past backtest ≠ future results.
       </p>
     </div>
   )
@@ -590,6 +635,34 @@ function StrategyPage({ strategies, api }) {
                   -${backtestResults.total_fees?.toFixed(2) || '0.00'}
                 </span>
               </div>
+              {backtestResults.monthly_roi > 0 && (
+                <div className="indicator-row">
+                  <span className="indicator-name">Monthly ROI</span>
+                  <span className="indicator-value positive">+{backtestResults.monthly_roi?.toFixed(2)}%</span>
+                </div>
+              )}
+              {backtestResults.calmar_ratio > 0 && (
+                <div className="indicator-row">
+                  <span className="indicator-name">Calmar Ratio</span>
+                  <span className="indicator-value" style={{ color: '#4a9eff' }}>{backtestResults.calmar_ratio?.toFixed(2)}</span>
+                </div>
+              )}
+              {backtestResults.sharpe_ratio > 0 && (
+                <div className="indicator-row">
+                  <span className="indicator-name">Sharpe Ratio</span>
+                  <span className="indicator-value" style={{ color: '#4a9eff' }}>{backtestResults.sharpe_ratio?.toFixed(3)}</span>
+                </div>
+              )}
+              {backtestResults.months_to_1m && (
+                <div className="indicator-row">
+                  <span className="indicator-name">Time to $1M (from $1K)</span>
+                  <span className="indicator-value" style={{ color: '#00d4aa' }}>
+                    {backtestResults.months_to_1m >= 24
+                      ? `${(backtestResults.months_to_1m / 12).toFixed(1)} yrs`
+                      : `${backtestResults.months_to_1m} mo`}
+                  </span>
+                </div>
+              )}
               {backtestResults.total_return > 0 && backtestResults.max_drawdown > 0 && (
                 <div className="indicator-row">
                   <span className="indicator-name">Risk-Adj Score</span>
@@ -608,6 +681,7 @@ function StrategyPage({ strategies, api }) {
         <GrowthProjection
           periodDays={backtestResults.period_days}
           totalReturn={backtestResults.total_return}
+          monthlyRoi={backtestResults.monthly_roi}
         />
       )}
 
@@ -1309,7 +1383,7 @@ function AdminPage({ api, setError, setSuccess }) {
     setLoading(true)
     try {
       const res = await api.get('/admin/users')
-      setUsers(res.data)
+      setUsers(res.data.users || [])
     } catch (e) {
       setError('Failed to load users')
     }
@@ -1318,10 +1392,10 @@ function AdminPage({ api, setError, setSuccess }) {
 
   useEffect(() => { loadUsers() }, [])
 
-  const approveUser = async (userId, approved) => {
+  const approveUser = async (userId, makeApproved) => {
     try {
-      await api.post(`/admin/users/${userId}/approve`, { approved })
-      setSuccess(approved ? 'User approved' : 'User access revoked')
+      await api.post(`/admin/users/${userId}/approve`, { action: makeApproved ? 'approve' : 'reject' })
+      setSuccess(makeApproved ? 'User approved' : 'User access revoked')
       loadUsers()
     } catch (e) {
       setError('Failed to update user')
@@ -1340,8 +1414,8 @@ function AdminPage({ api, setError, setSuccess }) {
 
   if (loading) return <div className="loading"><div className="spinner"></div></div>
 
-  const pending  = users.filter(u => !u.approved)
-  const approved = users.filter(u => u.approved)
+  const pending  = users.filter(u => u.account_status !== 'approved')
+  const approved = users.filter(u => u.account_status === 'approved')
 
   return (
     <>
@@ -1395,15 +1469,17 @@ function AdminPage({ api, setError, setSuccess }) {
 }
 
 function UserItem({ user, onApprove, onToggleAdmin }) {
+  const isApproved = user.account_status === 'approved'
+  const statusLabel = user.account_status === 'approved' ? 'Approved'
+    : user.account_status === 'rejected' ? 'Rejected' : 'Pending'
+
   return (
     <div className="user-item">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
           <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 5 }}>{user.username}</div>
           <div>
-            <span className={`user-tag ${user.approved ? 'approved' : 'pending'}`}>
-              {user.approved ? 'Approved' : 'Pending'}
-            </span>
+            <span className={`user-tag ${isApproved ? 'approved' : 'pending'}`}>{statusLabel}</span>
             {user.is_admin && <span className="user-tag is-admin">Admin</span>}
           </div>
         </div>
@@ -1411,10 +1487,10 @@ function UserItem({ user, onApprove, onToggleAdmin }) {
       </div>
       <div className="user-actions">
         <button
-          className={user.approved ? 'revoke' : 'approve'}
-          onClick={() => onApprove(user.id, !user.approved)}
+          className={isApproved ? 'revoke' : 'approve'}
+          onClick={() => onApprove(user.id, !isApproved)}
         >
-          {user.approved ? 'Revoke Access' : 'Approve'}
+          {isApproved ? 'Revoke Access' : 'Approve'}
         </button>
         <button
           className={user.is_admin ? 'revoke' : 'admin-on'}

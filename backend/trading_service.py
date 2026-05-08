@@ -278,6 +278,11 @@ class TradingService:
         df['vol_weighted_mom'] = (df['returns'] * df['volume_ratio']).rolling(10).sum()
         df['vol_weighted_roc'] = df['vol_weighted_mom'].pct_change(periods=5) * 100
 
+        # EMA-200 for long-term trend alignment — used by entry quality filter
+        df['ema200'] = talib.EMA(close, timeperiod=200)
+        df['ema200_distance'] = (df['close'] - df['ema200']) / (df['ema200'] + 1e-10)
+        df['ema200_slope'] = df['ema200'].pct_change(periods=10) * 100
+
         df['bb_width'] = (df['bb_upper'] - df['bb_lower']) / df['bb_middle']
         df['bb_squeeze'] = df['bb_width'] / df['bb_width'].rolling(50).mean()
         df['keltner_upper'] = df['ema_12'] + 2 * df['atr']
@@ -296,21 +301,42 @@ class TradingService:
 
     def create_labels(self, df, forward_periods=None, threshold=0.005):
         """
-        Generate directional labels from future price returns.
-
-        forward_periods is adapted to the timeframe so we don't look absurdly
-        far ahead on long timeframes (5m → 5 candles = 25 min, 1h → 2 candles
-        = 2 h, 4h → 2 candles = 8 h). Threshold stays at 0.5% for all
-        timeframes — the model has enough samples to learn with this value, and
-        it aligns with realistic leveraged-trade profit targets.
+        "Clean signal" labeling: only mark a trade LONG if price ends up AND
+        never dips below the stop-loss during the forward window — i.e. the
+        trade would not have been stopped out before reaching target. Mirrors
+        for SHORT. Trains the model on trades that actually survive the exit
+        rules, dramatically cutting noise vs a raw threshold filter.
         """
         tf_minutes = self._get_timeframe_minutes()
         if forward_periods is None:
             forward_periods = max(2, min(5, round(25 / tf_minutes)))
-        df['future_return'] = df['close'].shift(-forward_periods) / df['close'] - 1
+
+        close_arr = df['close'].values.astype(float)
+        low_arr   = df['low'].values.astype(float)
+        high_arr  = df['high'].values.astype(float)
+        n         = len(df)
+        sl        = self.stop_loss_pct
+
+        future_return  = np.full(n, np.nan)
+        future_min_pct = np.full(n, np.nan)   # worst dip  — long stop validation
+        future_max_pct = np.full(n, np.nan)   # worst spike — short stop validation
+
+        for i in range(n - forward_periods):
+            c = close_arr[i]
+            if c <= 0:
+                continue
+            future_return[i]  = close_arr[i + forward_periods] / c - 1
+            future_min_pct[i] = low_arr[i+1:i+forward_periods+1].min() / c - 1
+            future_max_pct[i] = high_arr[i+1:i+forward_periods+1].max() / c - 1
+
+        df['future_return']  = future_return
+        df['future_min_pct'] = future_min_pct
+        df['future_max_pct'] = future_max_pct
         df['signal'] = 0
-        df.loc[df['future_return'] > threshold, 'signal'] = 1
-        df.loc[df['future_return'] < -threshold, 'signal'] = -1
+        # Long: price reaches target AND never hit stop en route
+        df.loc[(df['future_return'] > threshold) & (df['future_min_pct'] > -sl), 'signal'] = 1
+        # Short: price reaches target AND never hit stop en route
+        df.loc[(df['future_return'] < -threshold) & (df['future_max_pct'] < sl), 'signal'] = -1
         return df
 
     def prepare_features(self, df):
@@ -325,6 +351,7 @@ class TradingService:
             'vol_weighted_mom', 'vol_weighted_roc',
             'bb_squeeze', 'in_squeeze',
             'vol_adj_adx', 'directional_volume',
+            'ema200_distance', 'ema200_slope',
         ]
         available = [c for c in feature_columns if c in df.columns]
         return df[available].copy(), available
@@ -486,6 +513,23 @@ class TradingService:
             return 1.0
         return max(0.5, min(1.5, 0.0015 / (atr / price + 1e-10)))
 
+    def _entry_filter(self, signal: int, df) -> bool:
+        """
+        Pre-entry quality gate. Requires:
+          • ADX ≥ 18  — trending market, not sideways chop
+          • volume_ratio ≥ 0.65 — above-average participation
+        Filters low-conviction setups where leverage amplifies noise into losses.
+        Returns True = entry allowed.
+        """
+        if df is None or len(df) < 5:
+            return True
+        latest = df.iloc[-1]
+        adx_raw = latest.get('adx', 25)
+        vol_raw = latest.get('volume_ratio', 1.0)
+        adx = 25.0 if pd.isna(adx_raw) else float(adx_raw)
+        vol = 1.0  if pd.isna(vol_raw) else float(vol_raw)
+        return adx >= 18 and vol >= 0.65
+
     def _get_market_regime(self) -> str:
         """
         Detect macro BTC trend from 4h candles (50-period EMA slope + price position).
@@ -621,6 +665,8 @@ class TradingService:
         if position is None and signal != 0 and confidence >= self.min_confidence:
             if self._is_drawdown_exceeded():
                 return
+            if not self._entry_filter(signal, df):
+                return
 
             vol_mult = self._get_volatility_multiplier(df) if df is not None else 1.0
             regime_mult = self._get_regime_multiplier(signal)
@@ -702,6 +748,8 @@ class TradingService:
 
             if position is None and signal != 0 and confidence >= self.min_confidence:
                 if self._is_drawdown_exceeded():
+                    return
+                if not self._entry_filter(signal, df):
                     return
 
                 try:
@@ -886,7 +934,10 @@ class TradingService:
                 if i - last_trade_candle < cooldown_candles:
                     continue
 
-                if position is None and sig_val != 0 and conf >= self.min_confidence:
+                # Entry quality filter — same gate as live trading
+                adx_raw = row.get('adx', 25); adx_f = 25.0 if pd.isna(adx_raw) else float(adx_raw)
+                vol_raw = row.get('volume_ratio', 1.0); vol_f = 1.0 if pd.isna(vol_raw) else float(vol_raw)
+                if position is None and sig_val != 0 and conf >= self.min_confidence and adx_f >= 18 and vol_f >= 0.65:
                     # ATR-adjusted margin (consistent with live sizing)
                     atr_val = row.get('atr', np.nan)
                     vol_mult = max(0.5, min(1.5, 0.0015 / (atr_val / price + 1e-10))) if (
@@ -978,17 +1029,27 @@ class TradingService:
             dd = (peak - running) / peak * 100
             max_drawdown = max(max_drawdown, dd)
 
+        monthly_roi = round(((1 + total_return_pct / 100) ** (30 / max(days, 1)) - 1) * 100, 2) if total_return_pct > 0 else 0.0
+        sharpe_ratio = 0.0
+        if len(trades) > 1:
+            tret = [t['pnl'] / max(balance_per_coin, 1) for t in trades]
+            sharpe_ratio = round(float(np.mean(tret) / (np.std(tret) + 1e-10) * np.sqrt(len(tret))), 3)
+        calmar_ratio = round(total_return_pct / max(max_drawdown, 0.01), 2) if total_return_pct > 0 else 0.0
+
         return {
             'symbol': symbol, 'coin': symbol.split('/')[0],
             'starting_balance': round(balance_per_coin, 2),
             'final_balance': round(balance, 2),
             'total_return': round(total_return_pct, 2),
+            'monthly_roi': monthly_roi,
             'total_pnl': round(sum(t['pnl'] for t in trades), 2),
             'total_fees': round(total_fees, 4),
             'total_trades': total_trades,
             'winning_trades': winning_trades,
             'win_rate': round((winning_trades / total_trades * 100) if total_trades > 0 else 0, 2),
             'max_drawdown': round(max_drawdown, 2),
+            'sharpe_ratio': sharpe_ratio,
+            'calmar_ratio': calmar_ratio,
             'trades': trades,
         }
 
@@ -1010,17 +1071,39 @@ class TradingService:
         total_fees = sum(r.get('total_fees', 0) for r in coin_results)
         total_return_pct = ((total_final - total_starting) / total_starting * 100) if total_starting > 0 else 0
 
+        monthly_roi = round(((1 + total_return_pct / 100) ** (30 / max(days, 1)) - 1) * 100, 2) if total_return_pct > 0 else 0.0
+        sharpe_ratio = 0.0
+        if len(all_trades) > 1:
+            tret = [t['pnl'] / max(total_starting, 1) for t in all_trades]
+            sharpe_ratio = round(float(np.mean(tret) / (np.std(tret) + 1e-10) * np.sqrt(len(tret))), 3)
+        calmar_ratio = round(total_return_pct / max(max_drawdown, 0.01), 2) if total_return_pct > 0 else 0.0
+        mr = monthly_roi / 100
+        compound_projection = {
+            '1m':  int(1000 * (1 + mr) ** 1),
+            '3m':  int(1000 * (1 + mr) ** 3),
+            '6m':  int(1000 * (1 + mr) ** 6),
+            '12m': int(1000 * (1 + mr) ** 12),
+            '24m': int(1000 * (1 + mr) ** 24),
+            '36m': int(1000 * (1 + mr) ** 36),
+        }
+        months_to_1m = math.ceil(math.log(1000) / math.log(1 + mr)) if mr > 0 else None
+
         return {
             'period_days': days,
             'starting_balance': total_starting,
             'final_balance': round(total_final, 2),
             'total_return': round(total_return_pct, 2),
+            'monthly_roi': monthly_roi,
             'total_pnl': round(total_pnl, 2),
             'total_fees': round(total_fees, 4),
             'total_trades': total_trades_count,
             'winning_trades': winning_trades,
             'win_rate': round((winning_trades / total_trades_count * 100) if total_trades_count > 0 else 0, 2),
             'max_drawdown': round(max_drawdown, 2),
+            'sharpe_ratio': sharpe_ratio,
+            'calmar_ratio': calmar_ratio,
+            'compound_projection': compound_projection,
+            'months_to_1m': months_to_1m,
             'leverage': self.leverage,
             'risk_per_trade': self.risk_per_trade,
             'stop_loss_pct': self.stop_loss_pct,
@@ -1109,18 +1192,18 @@ class ParameterOptimizer:
     Scores by ROI × win-rate × trade-count, penalised for excess drawdown.
     """
 
-    LEVERAGES = [2, 5, 10, 20, 25]
-    RISK_PER_TRADE = [0.01, 0.02, 0.03, 0.04, 0.05]
-    STOP_LOSS = [x / 1000 for x in range(5, 35, 5)]
-    TAKE_PROFIT = [x / 1000 for x in range(10, 110, 10)]
-    COOLDOWNS = [60, 300, 600, 900]
-    CONFIDENCES = [x / 100 for x in range(55, 95, 5)]
+    LEVERAGES = [5, 10, 15, 20, 25, 50]          # removed 2x (too conservative), added 15x, 50x
+    RISK_PER_TRADE = [0.01, 0.015, 0.02, 0.03, 0.04, 0.05]
+    STOP_LOSS = [0.005, 0.008, 0.010, 0.012, 0.015, 0.020, 0.025]
+    TAKE_PROFIT = [0.015, 0.020, 0.025, 0.030, 0.040, 0.050, 0.060, 0.080, 0.100]
+    COOLDOWNS = [60, 180, 300, 600, 900]
+    CONFIDENCES = [x / 100 for x in range(60, 90, 5)]  # raised floor from 55% to 60%
     TIMEFRAMES = ['5m', '15m', '30m', '1h', '2h', '4h']
-    TRAILING_STOPS = [0.005, 0.01, 0.015, 0.02]
-    PROFIT_MULTIPLIERS = [1.0, 1.25, 1.5, 2.0]
+    TRAILING_STOPS = [0.005, 0.008, 0.010, 0.015, 0.020]
+    PROFIT_MULTIPLIERS = [1.0, 1.25, 1.5, 2.0, 2.5]
 
-    MIN_TRADES = 15
-    SAMPLES_PER_TIMEFRAME = 100
+    MIN_TRADES = 20                  # raised from 15 — more robust signal requirement
+    SAMPLES_PER_TIMEFRAME = 120      # raised from 100
 
     def __init__(self, user_id: int, selected_coins: list, starting_balance: float = 10000,
                  api_key: str = None, api_secret: str = None, api_password: str = None):
@@ -1140,16 +1223,21 @@ class ParameterOptimizer:
 
     def _random_params(self):
         import random
-        return {
-            'leverage': random.choice(self.LEVERAGES),
-            'risk_per_trade': random.choice(self.RISK_PER_TRADE),
-            'stop_loss_pct': random.choice(self.STOP_LOSS),
-            'take_profit_pct': random.choice(self.TAKE_PROFIT),
-            'trade_cooldown': random.choice(self.COOLDOWNS),
-            'min_confidence': random.choice(self.CONFIDENCES),
-            'trailing_stop_pct': random.choice(self.TRAILING_STOPS),
-            'profit_risk_multiplier': random.choice(self.PROFIT_MULTIPLIERS),
-        }
+        for _ in range(50):
+            params = {
+                'leverage': random.choice(self.LEVERAGES),
+                'risk_per_trade': random.choice(self.RISK_PER_TRADE),
+                'stop_loss_pct': random.choice(self.STOP_LOSS),
+                'take_profit_pct': random.choice(self.TAKE_PROFIT),
+                'trade_cooldown': random.choice(self.COOLDOWNS),
+                'min_confidence': random.choice(self.CONFIDENCES),
+                'trailing_stop_pct': random.choice(self.TRAILING_STOPS),
+                'profit_risk_multiplier': random.choice(self.PROFIT_MULTIPLIERS),
+            }
+            # Enforce minimum 1.5:1 reward:risk — required for sustainable compounding
+            if params['take_profit_pct'] / params['stop_loss_pct'] >= 1.5:
+                return params
+        return params  # fallback (extremely rare after 50 attempts)
 
     def _cache_ohlcv(self, symbol: str, timeframe: str, days: int = 30):
         key = (symbol, timeframe)
@@ -1349,6 +1437,11 @@ class ParameterOptimizer:
         total_return_pct = ((total_balance - self.starting_balance) / self.starting_balance) * 100
         win_rate = (winning / total_trades * 100) if total_trades > 0 else 0
 
+        sharpe_ratio = 0.0
+        if total_trades > 1:
+            tret = [t['pnl'] / max(self.starting_balance, 1) for t in all_trades]
+            sharpe_ratio = float(np.mean(tret) / (np.std(tret) + 1e-10) * np.sqrt(total_trades))
+
         return {
             'total_return': total_return_pct,
             'total_pnl': total_pnl,
@@ -1357,6 +1450,7 @@ class ParameterOptimizer:
             'win_rate': win_rate,
             'final_balance': total_balance,
             'max_drawdown': overall_max_dd,
+            'sharpe_ratio': sharpe_ratio,
         }
 
     def _calculate_score(self, result: dict) -> float:
@@ -1369,20 +1463,22 @@ class ParameterOptimizer:
         winrate_score = result['win_rate'] / 100
         trade_score   = min(result['total_trades'] / 100, 1.0)
 
-        # Calmar ratio: return / max_drawdown — the key metric for compound growth.
-        # High ROI with low drawdown = sustainable compounding. Capped at 5× to avoid
-        # single-trade flukes dominating, normalised to 0-1.
+        # Calmar ratio: return / max_drawdown — key metric for sustainable compounding
         max_dd = max(result.get('max_drawdown', 0.1), 0.1)
-        calmar_score  = min(result['total_return'] / max_dd, 5.0) / 5.0
+        calmar_score = min(result['total_return'] / max_dd, 5.0) / 5.0
 
-        # Penalise drawdowns above 15% — each extra % above that costs 0.01 score
+        # Sharpe ratio: consistency and quality of returns (capped at Sharpe 3.0 → 1.0)
+        sharpe_score = max(0.0, min(result.get('sharpe_ratio', 0) / 3.0, 1.0))
+
+        # Penalise drawdowns above 15%
         dd_penalty = max(0.0, (result.get('max_drawdown', 0) - 15) / 100)
 
         return (
-            0.35 * roi_score
-            + 0.25 * winrate_score
-            + 0.15 * trade_score
+            0.30 * roi_score
+            + 0.20 * winrate_score
+            + 0.10 * trade_score
             + 0.25 * calmar_score
+            + 0.15 * sharpe_score
             - dd_penalty
         )
 
