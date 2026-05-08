@@ -9,6 +9,7 @@ on:
       - 'static/package.json'
       - 'static/vite.config.js'
       - 'static/index.html'
+  workflow_dispatch:  # allow manual trigger from GitHub Actions UI
 
 jobs:
   build:
