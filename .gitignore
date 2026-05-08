@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+.env
+*.pkl
+*.bin
+
+# Node
+static/node_modules/
+mobile/node_modules/
+
+# Build artifacts (dist is intentionally committed for deployment)
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
