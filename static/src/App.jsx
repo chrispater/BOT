@@ -10,6 +10,7 @@ function App() {
   const [success, setSuccess] = useState('')
   const [botStatus, setBotStatus] = useState(null)
   const [strategies, setStrategies] = useState(null)
+  const [isAdmin, setIsAdmin] = useState(false)
 
   const api = axios.create({
     baseURL: API_URL,
@@ -20,6 +21,7 @@ function App() {
     if (token) {
       fetchBotStatus()
       fetchStrategies()
+      checkAdmin()
       const interval = setInterval(fetchBotStatus, 5000)
       return () => clearInterval(interval)
     }
@@ -27,10 +29,7 @@ function App() {
 
   useEffect(() => {
     if (error || success) {
-      const timer = setTimeout(() => {
-        setError('')
-        setSuccess('')
-      }, 3000)
+      const timer = setTimeout(() => { setError(''); setSuccess('') }, 3000)
       return () => clearTimeout(timer)
     }
   }, [error, success])
@@ -40,9 +39,7 @@ function App() {
       const res = await api.get('/bot/status')
       setBotStatus(res.data)
     } catch (e) {
-      if (e.response?.status === 401) {
-        logout()
-      }
+      if (e.response?.status === 401) logout()
     }
   }
 
@@ -53,24 +50,49 @@ function App() {
     } catch (e) {}
   }
 
+  const checkAdmin = async () => {
+    try {
+      await api.get('/admin/users')
+      setIsAdmin(true)
+    } catch (e) {
+      setIsAdmin(false)
+    }
+  }
+
   const logout = () => {
     localStorage.removeItem('token')
     setToken(null)
     setBotStatus(null)
+    setIsAdmin(false)
   }
 
   if (!token) {
     return <AuthScreen setToken={setToken} setError={setError} error={error} />
   }
 
-  const headerCoins = botStatus?.selected_coins?.map(c => c.split('/')[0]).join(', ') || 'Configure coins in Settings'
-  const headerLeverage = botStatus?.leverage || '10'
+  const headerCoins = botStatus?.selected_coins?.map(c => c.split('/')[0]).join(', ') || 'No coins set'
+  const headerLeverage = botStatus?.leverage || '—'
 
   return (
     <div className="app">
       <header className="header">
-        <h1>Crypto Trading Bot</h1>
-        <p className="subtitle">{headerCoins} | {headerLeverage}x Leverage</p>
+        <h1>CryptoBot Pro</h1>
+        <p className="subtitle">{headerCoins} · {headerLeverage}x Leverage</p>
+        {botStatus && (
+          <div className="header-badges">
+            {botStatus.market_regime && (
+              <span className={`regime-badge ${botStatus.market_regime}`}>
+                {botStatus.market_regime === 'bull' ? 'BULL MKT' : botStatus.market_regime === 'bear' ? 'BEAR MKT' : 'SIDEWAYS'}
+              </span>
+            )}
+            {botStatus.model_type && (
+              <span className="model-badge">{botStatus.model_type}</span>
+            )}
+            {botStatus.signal_engine_active && (
+              <span className="signal-badge">SignalEngine</span>
+            )}
+          </div>
+        )}
       </header>
 
       <div className="content">
@@ -89,11 +111,7 @@ function App() {
         {currentPage === 'trades' && <TradesPage botStatus={botStatus} />}
         {currentPage === 'strategy' && <StrategyPage strategies={strategies} api={api} />}
         {currentPage === 'optimize' && (
-          <OptimizePage
-            api={api}
-            setError={setError}
-            setSuccess={setSuccess}
-          />
+          <OptimizePage api={api} setError={setError} setSuccess={setSuccess} />
         )}
         {currentPage === 'settings' && (
           <SettingsPage
@@ -104,43 +122,26 @@ function App() {
             botStatus={botStatus}
           />
         )}
+        {currentPage === 'admin' && isAdmin && (
+          <AdminPage api={api} setError={setError} setSuccess={setSuccess} />
+        )}
       </div>
 
       <nav className="nav">
-        <NavItem
-          icon={<HomeIcon />}
-          label="Dashboard"
-          active={currentPage === 'dashboard'}
-          onClick={() => setCurrentPage('dashboard')}
-        />
-        <NavItem
-          icon={<ChartIcon />}
-          label="Trades"
-          active={currentPage === 'trades'}
-          onClick={() => setCurrentPage('trades')}
-        />
-        <NavItem
-          icon={<BookIcon />}
-          label="Strategy"
-          active={currentPage === 'strategy'}
-          onClick={() => setCurrentPage('strategy')}
-        />
-        <NavItem
-          icon={<SearchIcon />}
-          label="Optimize"
-          active={currentPage === 'optimize'}
-          onClick={() => setCurrentPage('optimize')}
-        />
-        <NavItem
-          icon={<GearIcon />}
-          label="Settings"
-          active={currentPage === 'settings'}
-          onClick={() => setCurrentPage('settings')}
-        />
+        <NavItem icon={<HomeIcon />}   label="Dashboard" active={currentPage === 'dashboard'} onClick={() => setCurrentPage('dashboard')} />
+        <NavItem icon={<ChartIcon />}  label="Trades"    active={currentPage === 'trades'}    onClick={() => setCurrentPage('trades')} />
+        <NavItem icon={<BookIcon />}   label="Strategy"  active={currentPage === 'strategy'}  onClick={() => setCurrentPage('strategy')} />
+        <NavItem icon={<SearchIcon />} label="Optimize"  active={currentPage === 'optimize'}  onClick={() => setCurrentPage('optimize')} />
+        <NavItem icon={<GearIcon />}   label="Settings"  active={currentPage === 'settings'}  onClick={() => setCurrentPage('settings')} />
+        {isAdmin && (
+          <NavItem icon={<ShieldIcon />} label="Admin" active={currentPage === 'admin'} onClick={() => setCurrentPage('admin')} />
+        )}
       </nav>
     </div>
   )
 }
+
+/* ─────────────────────────── Auth ─────────────────────────── */
 
 function AuthScreen({ setToken, setError, error }) {
   const [isLogin, setIsLogin] = useState(true)
@@ -152,7 +153,6 @@ function AuthScreen({ setToken, setError, error }) {
     e.preventDefault()
     setLoading(true)
     setError('')
-
     try {
       const endpoint = isLogin ? '/auth/login' : '/auth/register'
       const res = await axios.post(`/api${endpoint}`, { username, password })
@@ -167,50 +167,29 @@ function AuthScreen({ setToken, setError, error }) {
   return (
     <div className="app">
       <header className="header">
-        <h1>Crypto Trading Bot</h1>
+        <h1>CryptoBot Pro</h1>
         <p className="subtitle">Autonomous ML-Powered Trading</p>
       </header>
-
       <div className="content">
         {error && <div className="error-message">{error}</div>}
-
         <div className="card">
-          <h2 className="card-title">{isLogin ? 'Login' : 'Create Account'}</h2>
-
+          <h2 className="card-title">{isLogin ? 'Sign In' : 'Create Account'}</h2>
           <form onSubmit={handleSubmit}>
             <div className="input-group">
               <label>Username</label>
-              <input
-                type="text"
-                value={username}
-                onChange={e => setUsername(e.target.value)}
-                placeholder="Enter username"
-                required
-              />
+              <input type="text" value={username} onChange={e => setUsername(e.target.value)} placeholder="Enter username" required />
             </div>
-
             <div className="input-group">
               <label>Password</label>
-              <input
-                type="password"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                placeholder="Enter password"
-                required
-              />
+              <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Enter password" required />
             </div>
-
             <button type="submit" className="btn btn-primary" disabled={loading}>
               {loading ? 'Please wait...' : (isLogin ? 'Login' : 'Create Account')}
             </button>
           </form>
-
-          <p style={{ textAlign: 'center', marginTop: 16, color: '#a0a0a0' }}>
+          <p style={{ textAlign: 'center', marginTop: 18, color: '#8b95a5', fontSize: 14 }}>
             {isLogin ? "Don't have an account? " : "Already have an account? "}
-            <span
-              style={{ color: '#e94560', cursor: 'pointer' }}
-              onClick={() => setIsLogin(!isLogin)}
-            >
+            <span style={{ color: '#e94560', cursor: 'pointer', fontWeight: 600 }} onClick={() => setIsLogin(!isLogin)}>
               {isLogin ? 'Sign Up' : 'Login'}
             </span>
           </p>
@@ -219,6 +198,8 @@ function AuthScreen({ setToken, setError, error }) {
     </div>
   )
 }
+
+/* ─────────────────────────── Dashboard ─────────────────────────── */
 
 function DashboardPage({ botStatus, api, fetchBotStatus, setError, setSuccess }) {
   const [loading, setLoading] = useState(false)
@@ -249,11 +230,11 @@ function DashboardPage({ botStatus, api, fetchBotStatus, setError, setSuccess })
 
   const coinSignals = botStatus?.coin_signals || {}
   const selectedCoins = botStatus?.selected_coins || []
-  // Multi-position support: show all open positions
   const openPositions = botStatus?.positions || (botStatus?.position ? [botStatus.position] : [])
 
   return (
     <>
+      {/* Status + Control */}
       <div className="card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <h2 className="card-title" style={{ margin: 0 }}>Bot Status</h2>
@@ -281,55 +262,12 @@ function DashboardPage({ botStatus, api, fetchBotStatus, setError, setSuccess })
         )}
       </div>
 
-      {botStatus?.running && selectedCoins.length > 0 && (
-        <div className="card">
-          <h2 className="card-title">Signals by Coin</h2>
-          {selectedCoins.map(coinSymbol => {
-            const coin = coinSymbol.split('/')[0]
-            const signal = coinSignals[coin]
-            return (
-              <div key={coin} style={{
-                padding: '12px',
-                marginBottom: 8,
-                background: 'rgba(255,255,255,0.03)',
-                borderRadius: 8,
-                border: '1px solid #333'
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                  <span style={{ fontWeight: 600, color: '#e94560', fontSize: 16 }}>{coin}</span>
-                  {signal ? (
-                    <span style={{
-                      padding: '4px 12px',
-                      borderRadius: 4,
-                      fontSize: 12,
-                      fontWeight: 600,
-                      background: signal.signal === 1 ? 'rgba(0,200,83,0.2)' : signal.signal === -1 ? 'rgba(255,82,82,0.2)' : 'rgba(150,150,150,0.2)',
-                      color: signal.signal === 1 ? '#00c853' : signal.signal === -1 ? '#ff5252' : '#999'
-                    }}>
-                      {signal.signal === 1 ? 'LONG' : signal.signal === -1 ? 'SHORT' : 'HOLD'}
-                    </span>
-                  ) : (
-                    <span style={{ color: '#666', fontSize: 12 }}>Waiting...</span>
-                  )}
-                </div>
-                {signal && (
-                  <div style={{ display: 'flex', gap: 16, fontSize: 12, color: '#a0a0a0' }}>
-                    <span>Confidence: <strong style={{ color: signal.confidence >= 0.65 ? '#00c853' : '#ff9800' }}>{(signal.confidence * 100).toFixed(1)}%</strong></span>
-                    <span>Price: ${signal.price?.toLocaleString()}</span>
-                    <span>RSI: {signal.rsi?.toFixed(1)}</span>
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      )}
-
+      {/* Performance */}
       <div className="card">
         <h2 className="card-title">Performance</h2>
         <div className="stat-grid">
           <div className="stat-item">
-            <div className="stat-value">${botStatus?.balance?.toLocaleString() || '10,000'}</div>
+            <div className="stat-value">${(botStatus?.balance || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
             <div className="stat-label">Balance</div>
           </div>
           <div className="stat-item">
@@ -343,53 +281,117 @@ function DashboardPage({ botStatus, api, fetchBotStatus, setError, setSuccess })
             <div className="stat-label">Total Trades</div>
           </div>
           <div className="stat-item">
-            <div className={`stat-value ${(botStatus?.win_rate || 0) >= 50 ? 'positive' : ''}`}>
+            <div className={`stat-value ${(botStatus?.win_rate || 0) >= 50 ? 'positive' : 'negative'}`}>
               {(botStatus?.win_rate || 0).toFixed(1)}%
             </div>
             <div className="stat-label">Win Rate</div>
           </div>
         </div>
+
+        {/* Kelly fraction display */}
+        {botStatus?.kelly_fraction != null && (
+          <div style={{ marginTop: 12, padding: '10px 12px', background: '#0f1318', borderRadius: 10, border: '1px solid rgba(255,255,255,0.07)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 13, color: '#8b95a5' }}>Kelly Fraction</span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: '#f5a623' }}>
+              {(botStatus.kelly_fraction * 100).toFixed(1)}%
+            </span>
+          </div>
+        )}
       </div>
 
-      {/* Multi-position display — one card per open position */}
+      {/* Coin Signals */}
+      {botStatus?.running && selectedCoins.length > 0 && (
+        <div className="card">
+          <h2 className="card-title">Live Signals</h2>
+          {selectedCoins.map(coinSymbol => {
+            const coin = coinSymbol.split('/')[0]
+            const signal = coinSignals[coin]
+            const conf = signal?.confidence || 0
+            const confColor = conf >= 0.70 ? '#00d4aa' : conf >= 0.65 ? '#f5a623' : '#e94560'
+
+            return (
+              <div key={coin} style={{
+                padding: '12px',
+                marginBottom: 8,
+                background: '#0f1318',
+                borderRadius: 10,
+                border: '1px solid rgba(255,255,255,0.07)'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontWeight: 700, color: '#e94560', fontSize: 15 }}>{coin}</span>
+                  {signal ? (
+                    <span style={{
+                      padding: '4px 12px',
+                      borderRadius: 20,
+                      fontSize: 12,
+                      fontWeight: 700,
+                      background: signal.signal === 1 ? 'rgba(0,212,170,0.15)' : signal.signal === -1 ? 'rgba(255,68,68,0.15)' : 'rgba(255,255,255,0.06)',
+                      color: signal.signal === 1 ? '#00d4aa' : signal.signal === -1 ? '#ff4444' : '#8b95a5',
+                      border: `1px solid ${signal.signal === 1 ? 'rgba(0,212,170,0.3)' : signal.signal === -1 ? 'rgba(255,68,68,0.3)' : 'transparent'}`
+                    }}>
+                      {signal.signal === 1 ? 'LONG' : signal.signal === -1 ? 'SHORT' : 'HOLD'}
+                    </span>
+                  ) : (
+                    <span style={{ color: '#4a5060', fontSize: 12 }}>Waiting...</span>
+                  )}
+                </div>
+                {signal && (
+                  <>
+                    <div style={{ display: 'flex', gap: 14, fontSize: 12, color: '#8b95a5', marginTop: 6 }}>
+                      <span>Conf: <strong style={{ color: confColor }}>{(conf * 100).toFixed(1)}%</strong></span>
+                      <span>Price: <strong style={{ color: '#e8eaf0' }}>${signal.price?.toLocaleString()}</strong></span>
+                      {signal.rsi && <span>RSI: <strong style={{ color: '#e8eaf0' }}>{signal.rsi?.toFixed(1)}</strong></span>}
+                    </div>
+                    <div className="confidence-bar-bg">
+                      <div className="confidence-bar-fill" style={{ width: `${(conf * 100).toFixed(0)}%`, background: confColor }} />
+                    </div>
+                  </>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Open Positions */}
       {openPositions.length > 0 && (
         <div className="card">
-          <h2 className="card-title">
-            Open Positions ({openPositions.length})
-          </h2>
+          <h2 className="card-title">Open Positions ({openPositions.length})</h2>
           {openPositions.map((pos, idx) => {
             const coin = pos.symbol ? pos.symbol.split('/')[0] : 'Unknown'
+            const isLong = pos.side === 'long'
             return (
               <div key={idx} style={{
                 padding: '12px',
                 marginBottom: idx < openPositions.length - 1 ? 8 : 0,
-                background: 'rgba(255,255,255,0.03)',
-                borderRadius: 8,
-                border: `1px solid ${pos.side === 'long' ? 'rgba(0,200,83,0.3)' : 'rgba(255,82,82,0.3)'}`
+                background: '#0f1318',
+                borderRadius: 10,
+                border: `1px solid ${isLong ? 'rgba(0,212,170,0.25)' : 'rgba(255,68,68,0.25)'}`
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                   <span style={{ fontWeight: 700, color: '#e94560', fontSize: 15 }}>{coin}</span>
                   <span style={{
-                    padding: '3px 10px',
-                    borderRadius: 4,
+                    padding: '3px 12px',
+                    borderRadius: 20,
                     fontSize: 12,
                     fontWeight: 700,
-                    background: pos.side === 'long' ? 'rgba(0,200,83,0.2)' : 'rgba(255,82,82,0.2)',
-                    color: pos.side === 'long' ? '#00c853' : '#ff5252',
+                    background: isLong ? 'rgba(0,212,170,0.15)' : 'rgba(255,68,68,0.15)',
+                    color: isLong ? '#00d4aa' : '#ff4444',
+                    border: `1px solid ${isLong ? 'rgba(0,212,170,0.3)' : 'rgba(255,68,68,0.3)'}`,
                     textTransform: 'uppercase'
                   }}>
                     {pos.side}
                   </span>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, fontSize: 12, color: '#a0a0a0' }}>
-                  <span>Entry: <strong style={{ color: '#fff' }}>${pos.entry_price?.toLocaleString()}</strong></span>
-                  <span>Size: <strong style={{ color: '#fff' }}>{pos.size?.toFixed(4)}</strong></span>
-                  <span>Margin: <strong style={{ color: '#fff' }}>${pos.margin?.toFixed(2)}</strong></span>
-                  {pos.high_water_mark && pos.side === 'long' && (
-                    <span>High: <strong style={{ color: '#00c853' }}>${pos.high_water_mark?.toLocaleString()}</strong></span>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, fontSize: 12, color: '#8b95a5' }}>
+                  <span>Entry: <strong style={{ color: '#e8eaf0' }}>${pos.entry_price?.toLocaleString()}</strong></span>
+                  <span>Size: <strong style={{ color: '#e8eaf0' }}>{pos.size?.toFixed(4)}</strong></span>
+                  <span>Margin: <strong style={{ color: '#e8eaf0' }}>${pos.margin?.toFixed(2)}</strong></span>
+                  {isLong && pos.high_water_mark && (
+                    <span>Peak: <strong style={{ color: '#00d4aa' }}>${pos.high_water_mark?.toLocaleString()}</strong></span>
                   )}
-                  {pos.low_water_mark && pos.side === 'short' && (
-                    <span>Low: <strong style={{ color: '#ff5252' }}>${pos.low_water_mark?.toLocaleString()}</strong></span>
+                  {!isLong && pos.low_water_mark && (
+                    <span>Low: <strong style={{ color: '#ff4444' }}>${pos.low_water_mark?.toLocaleString()}</strong></span>
                   )}
                 </div>
               </div>
@@ -401,6 +403,8 @@ function DashboardPage({ botStatus, api, fetchBotStatus, setError, setSuccess })
   )
 }
 
+/* ─────────────────────────── Trades ─────────────────────────── */
+
 function TradesPage({ botStatus }) {
   const trades = botStatus?.recent_trades || []
 
@@ -408,7 +412,7 @@ function TradesPage({ botStatus }) {
     <div className="card">
       <h2 className="card-title">Recent Trades</h2>
       {trades.length === 0 ? (
-        <p style={{ color: '#a0a0a0', textAlign: 'center', padding: 20 }}>
+        <p style={{ color: '#8b95a5', textAlign: 'center', padding: 24 }}>
           No trades yet. Start the bot to begin trading.
         </p>
       ) : (
@@ -417,10 +421,10 @@ function TradesPage({ botStatus }) {
             <div key={i} className="trade-item">
               <div>
                 <div className={`trade-side ${trade.side}`}>
-                  {trade.type.toUpperCase()} {trade.side?.toUpperCase()}
+                  {trade.type?.toUpperCase()} {trade.side?.toUpperCase()}
                 </div>
-                <div style={{ fontSize: 12, color: '#a0a0a0' }}>
-                  {trade.symbol ? trade.symbol.split('/')[0] : ''} ${trade.price?.toLocaleString()}
+                <div style={{ fontSize: 12, color: '#8b95a5', marginTop: 2 }}>
+                  {trade.symbol ? trade.symbol.split('/')[0] : ''} · ${trade.price?.toLocaleString()}
                 </div>
               </div>
               <div style={{ textAlign: 'right' }}>
@@ -429,7 +433,7 @@ function TradesPage({ botStatus }) {
                     {trade.pnl >= 0 ? '+' : ''}${trade.pnl?.toFixed(2)}
                   </div>
                 )}
-                <div style={{ fontSize: 12, color: '#a0a0a0' }}>
+                <div style={{ fontSize: 12, color: '#8b95a5', marginTop: 2 }}>
                   {trade.reason || (trade.confidence ? (trade.confidence * 100).toFixed(0) + '% conf' : '')}
                 </div>
               </div>
@@ -437,6 +441,49 @@ function TradesPage({ botStatus }) {
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+/* ─────────────────────────── Strategy / Backtest ─────────────────────────── */
+
+function GrowthProjection({ periodDays, totalReturn }) {
+  const monthlyReturn = (totalReturn / Math.max(periodDays, 1)) * 30
+  const projections = [
+    { label: '3 Months',  months: 3 },
+    { label: '6 Months',  months: 6 },
+    { label: '1 Year',    months: 12 },
+    { label: '2 Years',   months: 24 },
+  ]
+
+  return (
+    <div className="card">
+      <h2 className="card-title">Compound Growth Projection</h2>
+      <p style={{ fontSize: 12, color: '#8b95a5', marginBottom: 14 }}>
+        At <strong style={{ color: '#f5a623' }}>{monthlyReturn.toFixed(1)}%/mo</strong> · Starting capital: $1,000
+      </p>
+      <div className="growth-table">
+        {projections.map(({ label, months }) => {
+          const value = 1000 * Math.pow(1 + monthlyReturn / 100, months)
+          const gain = value - 1000
+          return (
+            <div key={months} className="growth-row">
+              <span style={{ color: '#8b95a5', fontSize: 14 }}>{label}</span>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ color: '#f5a623', fontWeight: 700, fontSize: 16 }}>
+                  ${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                </div>
+                <div style={{ color: '#00d4aa', fontSize: 12 }}>
+                  +${gain.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                </div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+      <p style={{ fontSize: 11, color: '#4a5060', marginTop: 10, textAlign: 'center' }}>
+        Based on backtest results. Past performance does not guarantee future results.
+      </p>
     </div>
   )
 }
@@ -463,47 +510,40 @@ function StrategyPage({ strategies, api }) {
   }
 
   if (!strategies) {
-    return (
-      <div className="loading">
-        <div className="spinner"></div>
-      </div>
-    )
+    return <div className="loading"><div className="spinner"></div></div>
   }
 
   return (
     <>
+      {/* Backtest Runner */}
       <div className="card">
         <h2 className="card-title">Backtest Strategy</h2>
-        <p style={{ color: '#a0a0a0', fontSize: 14, marginBottom: 16 }}>
-          Run a historical backtest using the same ML pipeline and trade logic as live trading. Includes fees, cooldown, trailing stops, and confidence thresholds.
+        <p style={{ color: '#8b95a5', fontSize: 14, marginBottom: 16, lineHeight: 1.5 }}>
+          Runs a historical simulation using the full ML pipeline, fees, trailing stops, cooldown, and confidence thresholds — identical to live trading.
         </p>
-        <button
-          className="btn btn-primary"
-          onClick={runBacktest}
-          disabled={backtestLoading}
-        >
+        <button className="btn btn-primary" onClick={runBacktest} disabled={backtestLoading}>
           {backtestLoading ? 'Running Backtest...' : 'Run Backtest'}
         </button>
 
-        {backtestError && (
-          <div className="error-message" style={{ marginTop: 16 }}>{backtestError}</div>
-        )}
+        {backtestError && <div className="error-message" style={{ marginTop: 16 }}>{backtestError}</div>}
 
         {backtestResults && (
           <div style={{ marginTop: 16 }}>
-            <div style={{ marginBottom: 12, padding: '10px 12px', background: 'rgba(233, 69, 96, 0.1)', borderRadius: 6, border: '1px solid rgba(233, 69, 96, 0.3)' }}>
-              <div style={{ fontSize: 12, color: '#a0a0a0', marginBottom: 4 }}>
-                {backtestResults.leverage}x lev | {(backtestResults.risk_per_trade * 100).toFixed(1)}% risk |{' '}
-                {(backtestResults.stop_loss_pct * 100).toFixed(1)}% SL | {(backtestResults.take_profit_pct * 100).toFixed(1)}% TP |{' '}
-                {backtestResults.trailing_stop_pct ? `${(backtestResults.trailing_stop_pct * 100).toFixed(1)}% trail | ` : ''}
-                {(backtestResults.min_confidence * 100).toFixed(0)}% conf | {backtestResults.timeframe || '5m'}
+            <div style={{ padding: '10px 14px', background: '#0f1318', borderRadius: 10, border: '1px solid rgba(255,255,255,0.07)', marginBottom: 16 }}>
+              <div style={{ fontSize: 12, color: '#8b95a5', marginBottom: 4 }}>
+                {backtestResults.leverage}x · {(backtestResults.risk_per_trade * 100).toFixed(1)}% risk ·{' '}
+                {(backtestResults.stop_loss_pct * 100).toFixed(1)}% SL · {(backtestResults.take_profit_pct * 100).toFixed(1)}% TP
+                {backtestResults.trailing_stop_pct ? ` · ${(backtestResults.trailing_stop_pct * 100).toFixed(1)}% trail` : ''} ·{' '}
+                {(backtestResults.min_confidence * 100).toFixed(0)}% conf · {backtestResults.timeframe || '5m'}
               </div>
               <div style={{ fontSize: 12, color: '#e94560', fontWeight: 600 }}>
-                Coins tested: {backtestResults.selected_coins?.map(c => c.split('/')[0]).join(', ')}
+                {backtestResults.selected_coins?.map(c => c.split('/')[0]).join(', ')}
               </div>
             </div>
 
-            <h3 style={{ fontSize: 14, color: '#fff', marginBottom: 12, marginTop: 16 }}>Overall Results ({backtestResults.period_days} days)</h3>
+            <h3 style={{ fontSize: 13, color: '#8b95a5', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '1px' }}>
+              Overall · {backtestResults.period_days} days
+            </h3>
             <div className="stat-grid">
               <div className="stat-item">
                 <div className={`stat-value ${backtestResults.total_pnl >= 0 ? 'positive' : 'negative'}`}>
@@ -518,7 +558,7 @@ function StrategyPage({ strategies, api }) {
                 <div className="stat-label">Return</div>
               </div>
               <div className="stat-item">
-                <div className={`stat-value ${backtestResults.win_rate >= 50 ? 'positive' : ''}`}>
+                <div className={`stat-value ${backtestResults.win_rate >= 50 ? 'positive' : 'negative'}`}>
                   {backtestResults.win_rate?.toFixed(1)}%
                 </div>
                 <div className="stat-label">Win Rate</div>
@@ -546,13 +586,32 @@ function StrategyPage({ strategies, api }) {
               </div>
               <div className="indicator-row">
                 <span className="indicator-name">Total Fees (0.06%)</span>
-                <span className="indicator-value" style={{ color: '#ff9800' }}>-${backtestResults.total_fees?.toFixed(2) || '0.00'}</span>
+                <span className="indicator-value" style={{ color: '#f5a623' }}>
+                  -${backtestResults.total_fees?.toFixed(2) || '0.00'}
+                </span>
               </div>
+              {backtestResults.total_return > 0 && backtestResults.max_drawdown > 0 && (
+                <div className="indicator-row">
+                  <span className="indicator-name">Risk-Adj Score</span>
+                  <span className="indicator-value" style={{ color: '#4a9eff' }}>
+                    {(backtestResults.win_rate * backtestResults.total_return / Math.max(backtestResults.max_drawdown, 1)).toFixed(1)}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         )}
       </div>
 
+      {/* Growth Projection — only when profitable */}
+      {backtestResults && backtestResults.total_return > 0 && (
+        <GrowthProjection
+          periodDays={backtestResults.period_days}
+          totalReturn={backtestResults.total_return}
+        />
+      )}
+
+      {/* Results by Coin */}
       {backtestResults?.coin_results && (
         <div className="card">
           <h2 className="card-title">Results by Coin</h2>
@@ -560,47 +619,41 @@ function StrategyPage({ strategies, api }) {
             <div key={idx} style={{
               padding: '12px',
               marginBottom: 8,
-              background: 'rgba(255,255,255,0.03)',
-              borderRadius: 8,
-              border: expandedCoin === coinResult.coin ? '1px solid #e94560' : '1px solid #333',
+              background: '#0f1318',
+              borderRadius: 10,
+              border: expandedCoin === coinResult.coin ? '1px solid #e94560' : '1px solid rgba(255,255,255,0.07)',
               cursor: 'pointer'
             }} onClick={() => setExpandedCoin(expandedCoin === coinResult.coin ? null : coinResult.coin)}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontWeight: 600, color: '#e94560', fontSize: 16 }}>{coinResult.coin}</span>
-                <span className={coinResult.total_pnl >= 0 ? 'positive' : 'negative'} style={{ fontWeight: 600 }}>
+                <span style={{ fontWeight: 700, color: '#e94560', fontSize: 15 }}>{coinResult.coin}</span>
+                <span className={coinResult.total_pnl >= 0 ? 'positive' : 'negative'} style={{ fontWeight: 700 }}>
                   {coinResult.total_pnl >= 0 ? '+' : ''}${coinResult.total_pnl?.toFixed(2)}
                 </span>
               </div>
               {coinResult.error ? (
-                <div style={{ color: '#ff9800', fontSize: 12, marginTop: 4 }}>{coinResult.error}</div>
+                <div style={{ color: '#f5a623', fontSize: 12, marginTop: 4 }}>{coinResult.error}</div>
               ) : (
-                <div style={{ display: 'flex', gap: 12, fontSize: 12, color: '#a0a0a0', marginTop: 6 }}>
+                <div style={{ display: 'flex', gap: 12, fontSize: 12, color: '#8b95a5', marginTop: 6 }}>
                   <span>Return: <strong className={coinResult.total_return >= 0 ? 'positive' : 'negative'}>{coinResult.total_return >= 0 ? '+' : ''}{coinResult.total_return?.toFixed(1)}%</strong></span>
-                  <span>Trades: {coinResult.total_trades}</span>
-                  <span>Win: {coinResult.win_rate?.toFixed(0)}%</span>
+                  <span>Trades: <strong style={{ color: '#e8eaf0' }}>{coinResult.total_trades}</strong></span>
+                  <span>Win: <strong style={{ color: coinResult.win_rate >= 50 ? '#00d4aa' : '#ff4444' }}>{coinResult.win_rate?.toFixed(0)}%</strong></span>
                 </div>
               )}
 
-              {expandedCoin === coinResult.coin && coinResult.trades && coinResult.trades.length > 0 && (
-                <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #333' }}>
-                  <div style={{ fontSize: 12, color: '#a0a0a0', marginBottom: 8 }}>Trade Log ({coinResult.trades.length} trades)</div>
+              {expandedCoin === coinResult.coin && coinResult.trades?.length > 0 && (
+                <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+                  <div style={{ fontSize: 12, color: '#4a5060', marginBottom: 8 }}>Trade log ({coinResult.trades.length})</div>
                   {coinResult.trades.map((trade, tIdx) => (
                     <div key={tIdx} style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      padding: '6px 8px',
-                      background: 'rgba(0,0,0,0.2)',
-                      borderRadius: 4,
-                      marginBottom: 4,
-                      fontSize: 11
+                      display: 'flex', justifyContent: 'space-between',
+                      padding: '6px 8px', background: 'rgba(0,0,0,0.2)',
+                      borderRadius: 4, marginBottom: 4, fontSize: 11
                     }}>
-                      <span style={{ color: trade.side === 'long' ? '#00c853' : '#ff5252', textTransform: 'uppercase', fontWeight: 600 }}>
-                        {trade.side}
-                      </span>
-                      <span style={{ color: '#666' }}>Entry: ${trade.entry}</span>
-                      <span style={{ color: '#666' }}>Exit: ${trade.exit}</span>
-                      <span style={{ fontSize: 10, color: '#555' }}>{trade.reason}</span>
-                      <span className={trade.pnl >= 0 ? 'positive' : 'negative'} style={{ fontWeight: 600 }}>
+                      <span style={{ color: trade.side === 'long' ? '#00d4aa' : '#ff4444', textTransform: 'uppercase', fontWeight: 700 }}>{trade.side}</span>
+                      <span style={{ color: '#4a5060' }}>Entry: ${trade.entry}</span>
+                      <span style={{ color: '#4a5060' }}>Exit: ${trade.exit}</span>
+                      <span style={{ fontSize: 10, color: '#4a5060' }}>{trade.reason}</span>
+                      <span className={trade.pnl >= 0 ? 'positive' : 'negative'} style={{ fontWeight: 700 }}>
                         {trade.pnl >= 0 ? '+' : ''}${trade.pnl}
                       </span>
                     </div>
@@ -612,44 +665,30 @@ function StrategyPage({ strategies, api }) {
         </div>
       )}
 
-      {backtestResults?.all_trades && backtestResults.all_trades.length > 0 && (
+      {/* All Trades Log */}
+      {backtestResults?.all_trades?.length > 0 && (
         <div className="card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <h2 className="card-title" style={{ margin: 0 }}>All Trades Log</h2>
-            <button
-              onClick={() => setShowAllTrades(!showAllTrades)}
-              style={{
-                padding: '6px 12px',
-                background: 'rgba(233,69,96,0.2)',
-                border: '1px solid #e94560',
-                borderRadius: 4,
-                color: '#e94560',
-                cursor: 'pointer',
-                fontSize: 12
-              }}
-            >
+            <h2 className="card-title" style={{ margin: 0 }}>All Trades</h2>
+            <button onClick={() => setShowAllTrades(!showAllTrades)} style={{
+              padding: '6px 12px', background: 'rgba(233,69,96,0.12)', border: '1px solid rgba(233,69,96,0.3)',
+              borderRadius: 8, color: '#e94560', cursor: 'pointer', fontSize: 12, fontWeight: 600
+            }}>
               {showAllTrades ? 'Hide' : `Show ${backtestResults.all_trades.length} trades`}
             </button>
           </div>
-
           {showAllTrades && (
             <div style={{ maxHeight: 300, overflowY: 'auto' }}>
               {backtestResults.all_trades.map((trade, idx) => (
                 <div key={idx} style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  padding: '8px',
-                  background: idx % 2 === 0 ? 'rgba(0,0,0,0.2)' : 'transparent',
-                  borderRadius: 4,
-                  fontSize: 12,
-                  alignItems: 'center'
+                  display: 'flex', justifyContent: 'space-between',
+                  padding: '8px', background: idx % 2 === 0 ? 'rgba(0,0,0,0.15)' : 'transparent',
+                  borderRadius: 4, fontSize: 12, alignItems: 'center'
                 }}>
-                  <span style={{ color: '#e94560', fontWeight: 600, minWidth: 40 }}>{trade.coin}</span>
-                  <span style={{ color: trade.side === 'long' ? '#00c853' : '#ff5252', textTransform: 'uppercase', minWidth: 50 }}>
-                    {trade.side}
-                  </span>
-                  <span style={{ color: '#666' }}>${trade.entry} → ${trade.exit}</span>
-                  <span className={trade.pnl >= 0 ? 'positive' : 'negative'} style={{ fontWeight: 600, minWidth: 70, textAlign: 'right' }}>
+                  <span style={{ color: '#e94560', fontWeight: 700, minWidth: 40 }}>{trade.coin}</span>
+                  <span style={{ color: trade.side === 'long' ? '#00d4aa' : '#ff4444', textTransform: 'uppercase', minWidth: 50, fontWeight: 600 }}>{trade.side}</span>
+                  <span style={{ color: '#4a5060' }}>${trade.entry} → ${trade.exit}</span>
+                  <span className={trade.pnl >= 0 ? 'positive' : 'negative'} style={{ fontWeight: 700, minWidth: 70, textAlign: 'right' }}>
                     {trade.pnl >= 0 ? '+' : ''}${trade.pnl} ({trade.pnl_pct}%)
                   </span>
                 </div>
@@ -659,9 +698,10 @@ function StrategyPage({ strategies, api }) {
         </div>
       )}
 
+      {/* Strategy Overview */}
       <div className="card">
-        <h2 style={{ fontSize: 20, marginBottom: 8 }}>{strategies.name}</h2>
-        <p style={{ color: '#a0a0a0', fontSize: 14 }}>{strategies.description}</p>
+        <h2 style={{ fontSize: 18, marginBottom: 6, fontWeight: 700 }}>{strategies.name}</h2>
+        <p style={{ color: '#8b95a5', fontSize: 14, lineHeight: 1.6 }}>{strategies.description}</p>
       </div>
 
       {strategies.components?.map((component, i) => (
@@ -671,27 +711,227 @@ function StrategyPage({ strategies, api }) {
             <span className="strategy-weight">{component.weight}</span>
           </div>
           <p className="strategy-desc">{component.description}</p>
-
           {component.details && (
-            <ul className="strategy-list">
-              {component.details.map((detail, j) => (
-                <li key={j}>{detail}</li>
-              ))}
-            </ul>
+            <ul className="strategy-list">{component.details.map((d, j) => <li key={j}>{d}</li>)}</ul>
           )}
-
           {component.indicators && (
-            <ul className="strategy-list">
-              {component.indicators.map((ind, j) => (
-                <li key={j}><strong>{ind.name}:</strong> {ind.desc}</li>
-              ))}
-            </ul>
+            <ul className="strategy-list">{component.indicators.map((ind, j) => <li key={j}><strong>{ind.name}:</strong> {ind.desc}</li>)}</ul>
           )}
         </div>
       ))}
     </>
   )
 }
+
+/* ─────────────────────────── Optimize ─────────────────────────── */
+
+function OptimizePage({ api, setError, setSuccess }) {
+  const [optimizeResults, setOptimizeResults] = useState(null)
+  const [optimizeLoading, setOptimizeLoading] = useState(false)
+  const [optimizeStatus, setOptimizeStatus] = useState('')
+  const [optimizeError, setOptimizeError] = useState('')
+  const [selectedConfig, setSelectedConfig] = useState(null)
+  const [applyLoading, setApplyLoading] = useState(false)
+  const pollIntervalRef = useRef(null)
+
+  useEffect(() => {
+    return () => { if (pollIntervalRef.current) clearInterval(pollIntervalRef.current) }
+  }, [])
+
+  const pollForResults = async () => {
+    try {
+      const res = await api.get('/optimize/status')
+      if (res.data.status === 'completed') {
+        setOptimizeResults(res.data.result)
+        setOptimizeLoading(false)
+        setOptimizeStatus('')
+        clearInterval(pollIntervalRef.current)
+        pollIntervalRef.current = null
+        return true
+      } else if (res.data.status === 'failed') {
+        setOptimizeError(res.data.error || 'Optimization failed')
+        setOptimizeLoading(false)
+        setOptimizeStatus('')
+        clearInterval(pollIntervalRef.current)
+        pollIntervalRef.current = null
+        return true
+      } else {
+        setOptimizeStatus(res.data.message || 'Running...')
+        return false
+      }
+    } catch (e) { return false }
+  }
+
+  const runOptimization = async () => {
+    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current)
+    setOptimizeLoading(true)
+    setOptimizeError('')
+    setOptimizeResults(null)
+    setSelectedConfig(null)
+    setOptimizeStatus('Starting optimization...')
+    try {
+      await api.post('/optimize/start')
+      pollIntervalRef.current = setInterval(async () => { await pollForResults() }, 5000)
+    } catch (e) {
+      setOptimizeError(e.response?.data?.detail || 'Failed to start optimization')
+      setOptimizeLoading(false)
+    }
+  }
+
+  const applyConfig = async (config) => {
+    setApplyLoading(true)
+    try {
+      await api.put('/settings', {
+        leverage: config.leverage,
+        risk_per_trade: config.risk_per_trade,
+        stop_loss_pct: config.stop_loss_pct,
+        take_profit_pct: config.take_profit_pct,
+        trade_cooldown: config.trade_cooldown,
+        min_confidence: config.min_confidence,
+        timeframe: config.timeframe,
+        ...(config.trailing_stop_pct != null && { trailing_stop_pct: config.trailing_stop_pct }),
+      })
+      setSuccess(`Applied: ${config.timeframe} · ${config.leverage}x · ${(config.min_confidence * 100).toFixed(0)}% conf`)
+      setSelectedConfig(config)
+    } catch (e) {
+      setError('Failed to apply settings — stop the bot first')
+    }
+    setApplyLoading(false)
+  }
+
+  const resetOptimization = async () => {
+    try {
+      await api.post('/optimize/reset')
+      setOptimizeLoading(false)
+      setOptimizeStatus('')
+      setOptimizeError('')
+      if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null }
+      setSuccess('Reset — you can start a new optimization')
+    } catch (e) { setError('Failed to reset') }
+  }
+
+  const formatCooldown = (s) => s < 60 ? `${s}s` : `${Math.round(s / 60)}m`
+
+  return (
+    <>
+      <div className="card">
+        <h2 className="card-title">Parameter Optimizer</h2>
+        <p style={{ color: '#8b95a5', fontSize: 14, marginBottom: 12, lineHeight: 1.5 }}>
+          Automatically discovers the best trading parameters for your coins by testing ~1,350 configurations across all timeframes. Returns top performers ranked by ROI, win rate, drawdown, and trade count.
+        </p>
+        <p style={{ color: '#e94560', fontSize: 12, marginBottom: 16 }}>
+          Warning: This takes 5–15 minutes to complete.
+        </p>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-primary" onClick={runOptimization} disabled={optimizeLoading}>
+            {optimizeLoading ? (optimizeStatus || 'Optimizing...') : 'Find Best Parameters'}
+          </button>
+          {optimizeLoading && (
+            <button className="btn btn-danger" onClick={resetOptimization} style={{ maxWidth: 90, padding: '14px 12px', fontSize: 13 }}>
+              Reset
+            </button>
+          )}
+        </div>
+        {optimizeError && <div className="error-message" style={{ marginTop: 16 }}>{optimizeError}</div>}
+      </div>
+
+      {optimizeResults && (
+        <div className="card">
+          <h2 className="card-title">Top Configurations</h2>
+          <div style={{ fontSize: 12, color: '#8b95a5', marginBottom: 4 }}>
+            Tested {optimizeResults.total_tested} configs · {optimizeResults.valid_configs} profitable · {optimizeResults.days_tested} days
+          </div>
+          <div style={{ fontSize: 12, color: '#8b95a5', marginBottom: 16 }}>
+            Coins: {optimizeResults.selected_coins?.map(c => c.split('/')[0]).join(', ')}
+          </div>
+
+          {optimizeResults.top_configs?.length === 0 ? (
+            <p style={{ color: '#e94560' }}>No profitable configurations found. Try different coins or timeframes.</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {optimizeResults.top_configs?.map((config, i) => {
+                const isSelected = selectedConfig === config
+                const monthlyRet = (config.total_return / Math.max(optimizeResults.days_tested, 1)) * 30
+                const yearValue  = 1000 * Math.pow(1 + monthlyRet / 100, 12)
+                const annualPct  = (yearValue / 1000 - 1) * 100
+
+                return (
+                  <div key={i} style={{
+                    padding: 14,
+                    background: isSelected ? 'rgba(0,212,170,0.08)' : '#0f1318',
+                    borderRadius: 12,
+                    border: isSelected ? '1px solid rgba(0,212,170,0.4)' : '1px solid rgba(255,255,255,0.07)'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: '#e94560' }}>
+                        #{i + 1} — {config.timeframe}
+                      </span>
+                      <span style={{ fontSize: 15, fontWeight: 700, color: config.total_return >= 0 ? '#00d4aa' : '#ff4444' }}>
+                        {config.total_return >= 0 ? '+' : ''}{config.total_return.toFixed(1)}% ROI
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, fontSize: 12, color: '#8b95a5', marginBottom: 10 }}>
+                      <span>Leverage: <strong style={{ color: '#e8eaf0' }}>{config.leverage}x</strong></span>
+                      <span>Risk: <strong style={{ color: '#e8eaf0' }}>{(config.risk_per_trade * 100).toFixed(0)}%</strong></span>
+                      <span>SL: <strong style={{ color: '#ff4444' }}>{(config.stop_loss_pct * 100).toFixed(2)}%</strong></span>
+                      <span>TP: <strong style={{ color: '#00d4aa' }}>{(config.take_profit_pct * 100).toFixed(2)}%</strong></span>
+                      <span>Trail: <strong style={{ color: '#e8eaf0' }}>{config.trailing_stop_pct != null ? `${(config.trailing_stop_pct * 100).toFixed(1)}%` : '—'}</strong></span>
+                      <span>Conf: <strong style={{ color: '#e8eaf0' }}>{(config.min_confidence * 100).toFixed(0)}%</strong></span>
+                      <span>Cooldown: <strong style={{ color: '#e8eaf0' }}>{formatCooldown(config.trade_cooldown)}</strong></span>
+                      <span>Score: <strong style={{ color: '#4a9eff' }}>{config.score?.toFixed(3)}</strong></span>
+                    </div>
+
+                    {/* Compound projection per config */}
+                    {monthlyRet > 0 && (
+                      <div style={{ padding: '8px 10px', background: 'rgba(245,166,35,0.07)', borderRadius: 8, border: '1px solid rgba(245,166,35,0.18)', marginBottom: 10 }}>
+                        <span style={{ fontSize: 11, color: '#8b95a5' }}>12-mo compound: </span>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: '#f5a623' }}>
+                          ${yearValue.toFixed(0)}&nbsp;
+                        </span>
+                        <span style={{ fontSize: 11, color: '#00d4aa' }}>
+                          (+{annualPct.toFixed(0)}% on $1k)
+                        </span>
+                      </div>
+                    )}
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12 }}>
+                      <span style={{ color: '#00d4aa' }}>
+                        {config.win_rate.toFixed(1)}% win · {config.total_trades} trades · ${config.total_pnl.toFixed(0)} PnL
+                      </span>
+                      <button
+                        className="btn btn-secondary"
+                        style={{ padding: '6px 14px', fontSize: 12, width: 'auto' }}
+                        onClick={() => applyConfig(config)}
+                        disabled={applyLoading}
+                      >
+                        {isSelected ? 'Applied' : 'Apply'}
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="card">
+        <h2 className="card-title">How It Works</h2>
+        <ul className="strategy-list">
+          <li><strong>Smart Search:</strong> Tests 100 random parameter combos per timeframe across all major timeframes</li>
+          <li><strong>Trailing Stop:</strong> Also optimises trailing stop distance (0.5%–2%) for locked profits</li>
+          <li><strong>Composite Score:</strong> 50% ROI + 30% Win Rate + 20% Trade Count, with drawdown penalty</li>
+          <li><strong>Drawdown Guard:</strong> Penalises configs where max drawdown exceeds 15%</li>
+          <li><strong>Min Trades:</strong> Rejects configs with fewer than 15 trades (avoids overfitting)</li>
+          <li><strong>Compound Projection:</strong> Shows annualised compounding at each config's monthly return</li>
+        </ul>
+      </div>
+    </>
+  )
+}
+
+/* ─────────────────────────── Settings ─────────────────────────── */
 
 const AVAILABLE_COINS = [
   'BTC/USDT:USDT', 'ETH/USDT:USDT', 'SOL/USDT:USDT', 'XRP/USDT:USDT',
@@ -707,7 +947,6 @@ function SettingsPage({ api, logout, setError, setSuccess, botStatus }) {
   const [loading, setLoading] = useState(false)
   const [hasCredentials, setHasCredentials] = useState(false)
 
-  // Core trading settings
   const [startingBalance, setStartingBalance] = useState(10000)
   const [leverage, setLeverage] = useState(10)
   const [selectedCoins, setSelectedCoins] = useState(['BTC/USDT:USDT'])
@@ -717,8 +956,8 @@ function SettingsPage({ api, logout, setError, setSuccess, botStatus }) {
   const [tradeCooldown, setTradeCooldown] = useState(5)
   const [minConfidence, setMinConfidence] = useState(65)
   const [timeframe, setTimeframe] = useState('5m')
+  const [simulationMode, setSimulationMode] = useState(true)
 
-  // Compounding & protection settings
   const [trailingStopPct, setTrailingStopPct] = useState(1.0)
   const [maxDrawdownPct, setMaxDrawdownPct] = useState(20)
   const [retrainEvery, setRetrainEvery] = useState(50)
@@ -754,6 +993,7 @@ function SettingsPage({ api, logout, setError, setSuccess, botStatus }) {
       setTradeCooldown((d.trade_cooldown || 300) / 60)
       setMinConfidence((d.min_confidence || 0.65) * 100)
       setTimeframe(d.timeframe || '5m')
+      setSimulationMode(d.simulation_mode !== false)
       setTrailingStopPct((d.trailing_stop_pct || 0.01) * 100)
       setMaxDrawdownPct((d.max_drawdown_pct || 0.20) * 100)
       setRetrainEvery(d.retrain_every || 50)
@@ -765,15 +1005,9 @@ function SettingsPage({ api, logout, setError, setSuccess, botStatus }) {
     e.preventDefault()
     setLoading(true)
     try {
-      await api.post('/credentials', {
-        api_key: apiKey,
-        api_secret: apiSecret,
-        api_password: apiPassword
-      })
-      setSuccess('API credentials saved securely')
-      setApiKey('')
-      setApiSecret('')
-      setApiPassword('')
+      await api.post('/credentials', { api_key: apiKey, api_secret: apiSecret, api_password: apiPassword })
+      setSuccess('API credentials saved')
+      setApiKey(''); setApiSecret(''); setApiPassword('')
       checkCredentials()
     } catch (e) {
       setError('Failed to save credentials')
@@ -782,47 +1016,42 @@ function SettingsPage({ api, logout, setError, setSuccess, botStatus }) {
   }
 
   const saveSettings = async () => {
-    if (isBotRunning) {
-      setError('Stop the bot before changing settings')
-      return
+    if (isBotRunning) { setError('Stop the bot before changing settings'); return }
+
+    const v = {
+      risk:       Math.max(0.1, Math.min(10, riskPerTrade)),
+      sl:         Math.max(0.1, Math.min(10, stopLossPct)),
+      tp:         Math.max(0.1, Math.min(20, takeProfitPct)),
+      cooldown:   Math.max(1, Math.min(60, Math.round(tradeCooldown))),
+      conf:       Math.max(50, Math.min(95, Math.round(minConfidence))),
+      trail:      Math.max(0.1, Math.min(5, trailingStopPct)),
+      drawdown:   Math.max(5, Math.min(50, maxDrawdownPct)),
+      retrain:    Math.max(10, Math.min(500, Math.round(retrainEvery))),
+      multiplier: Math.max(1.0, Math.min(3.0, profitRiskMultiplier)),
     }
 
-    const validatedRisk = Math.max(0.1, Math.min(10, riskPerTrade))
-    const validatedSL = Math.max(0.1, Math.min(10, stopLossPct))
-    const validatedTP = Math.max(0.1, Math.min(20, takeProfitPct))
-    const validatedCooldown = Math.max(1, Math.min(60, Math.round(tradeCooldown)))
-    const validatedConfidence = Math.max(50, Math.min(95, Math.round(minConfidence)))
-    const validatedTrail = Math.max(0.1, Math.min(5, trailingStopPct))
-    const validatedDrawdown = Math.max(5, Math.min(50, maxDrawdownPct))
-    const validatedRetrain = Math.max(10, Math.min(500, Math.round(retrainEvery)))
-    const validatedMultiplier = Math.max(1.0, Math.min(3.0, profitRiskMultiplier))
-
-    setRiskPerTrade(validatedRisk)
-    setStopLossPct(validatedSL)
-    setTakeProfitPct(validatedTP)
-    setTradeCooldown(validatedCooldown)
-    setMinConfidence(validatedConfidence)
-    setTrailingStopPct(validatedTrail)
-    setMaxDrawdownPct(validatedDrawdown)
-    setRetrainEvery(validatedRetrain)
-    setProfitRiskMultiplier(validatedMultiplier)
+    setRiskPerTrade(v.risk); setStopLossPct(v.sl); setTakeProfitPct(v.tp)
+    setTradeCooldown(v.cooldown); setMinConfidence(v.conf)
+    setTrailingStopPct(v.trail); setMaxDrawdownPct(v.drawdown)
+    setRetrainEvery(v.retrain); setProfitRiskMultiplier(v.multiplier)
 
     setSettingsLoading(true)
     try {
       await api.put('/settings', {
         starting_balance: startingBalance,
-        leverage: leverage,
+        leverage,
         selected_coins: selectedCoins,
-        risk_per_trade: validatedRisk / 100,
-        stop_loss_pct: validatedSL / 100,
-        take_profit_pct: validatedTP / 100,
-        trade_cooldown: validatedCooldown * 60,
-        min_confidence: validatedConfidence / 100,
-        timeframe: timeframe,
-        trailing_stop_pct: validatedTrail / 100,
-        max_drawdown_pct: validatedDrawdown / 100,
-        retrain_every: validatedRetrain,
-        profit_risk_multiplier: validatedMultiplier,
+        risk_per_trade: v.risk / 100,
+        stop_loss_pct: v.sl / 100,
+        take_profit_pct: v.tp / 100,
+        trade_cooldown: v.cooldown * 60,
+        min_confidence: v.conf / 100,
+        timeframe,
+        simulation_mode: simulationMode,
+        trailing_stop_pct: v.trail / 100,
+        max_drawdown_pct: v.drawdown / 100,
+        retrain_every: v.retrain,
+        profit_risk_multiplier: v.multiplier,
       })
       setSuccess('Settings saved')
     } catch (e) {
@@ -834,9 +1063,7 @@ function SettingsPage({ api, logout, setError, setSuccess, botStatus }) {
   const toggleCoin = (coin) => {
     if (isBotRunning) return
     if (selectedCoins.includes(coin)) {
-      if (selectedCoins.length > 1) {
-        setSelectedCoins(selectedCoins.filter(c => c !== coin))
-      }
+      if (selectedCoins.length > 1) setSelectedCoins(selectedCoins.filter(c => c !== coin))
     } else if (selectedCoins.length < 5) {
       setSelectedCoins([...selectedCoins, coin])
     } else {
@@ -844,53 +1071,62 @@ function SettingsPage({ api, logout, setError, setSuccess, botStatus }) {
     }
   }
 
-  const getCoinDisplayName = (coin) => coin.split('/')[0]
+  const dis = (disabled) => ({ opacity: disabled ? 0.45 : 1 })
+  const sel = (disabled) => ({
+    opacity: disabled ? 0.45 : 1, width: '100%', padding: '13px 16px',
+    borderRadius: 12, border: '1px solid rgba(255,255,255,0.07)',
+    background: '#0f1318', color: '#e8eaf0', fontSize: 15, outline: 'none'
+  })
 
-  const inputStyle = (disabled) => ({
-    opacity: disabled ? 0.5 : 1
-  })
-  const selectStyle = (disabled) => ({
-    opacity: disabled ? 0.5 : 1,
-    width: '100%',
-    padding: '12px',
-    borderRadius: 8,
-    border: '1px solid #333',
-    background: '#1a1a2e',
-    color: '#fff'
-  })
+  const BotRunningWarning = () => isBotRunning ? (
+    <div className="error-message" style={{ marginBottom: 16 }}>Stop the bot to change settings</div>
+  ) : null
 
   return (
     <>
+      {/* ── Trading Mode ── */}
+      <div className="card">
+        <h2 className="card-title">Trading Mode</h2>
+        <BotRunningWarning />
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          <button onClick={() => !isBotRunning && setSimulationMode(true)} style={{
+            flex: 1, padding: '12px', borderRadius: 10, border: simulationMode ? '2px solid #f5a623' : '1px solid rgba(255,255,255,0.07)',
+            background: simulationMode ? 'rgba(245,166,35,0.12)' : 'transparent',
+            color: simulationMode ? '#f5a623' : '#8b95a5', cursor: isBotRunning ? 'not-allowed' : 'pointer',
+            fontWeight: 600, fontSize: 14, transition: 'all 0.2s'
+          }}>
+            Simulation
+          </button>
+          <button onClick={() => !isBotRunning && setSimulationMode(false)} style={{
+            flex: 1, padding: '12px', borderRadius: 10, border: !simulationMode ? '2px solid #ff4444' : '1px solid rgba(255,255,255,0.07)',
+            background: !simulationMode ? 'rgba(255,68,68,0.12)' : 'transparent',
+            color: !simulationMode ? '#ff4444' : '#8b95a5', cursor: isBotRunning ? 'not-allowed' : 'pointer',
+            fontWeight: 600, fontSize: 14, transition: 'all 0.2s'
+          }}>
+            Live Trading
+          </button>
+        </div>
+        <p style={{ fontSize: 12, color: '#4a5060', textAlign: 'center' }}>
+          {simulationMode ? 'Paper trading — no real funds at risk' : 'LIVE — real funds will be used. Trade with caution.'}
+        </p>
+        <button className="btn btn-primary" onClick={saveSettings} disabled={settingsLoading || isBotRunning} style={{ marginTop: 14 }}>
+          {settingsLoading ? 'Saving...' : 'Save Mode'}
+        </button>
+      </div>
+
       {/* ── Trading Settings ── */}
       <div className="card">
         <h2 className="card-title">Trading Settings</h2>
-
-        {isBotRunning && (
-          <div className="error-message" style={{ marginBottom: 16 }}>
-            Stop the bot to change trading settings
-          </div>
-        )}
+        <BotRunningWarning />
 
         <div className="input-group">
           <label>Starting Balance (USDT)</label>
-          <input
-            type="number"
-            value={startingBalance}
-            onChange={e => setStartingBalance(Number(e.target.value))}
-            min="100"
-            disabled={isBotRunning}
-            style={inputStyle(isBotRunning)}
-          />
+          <input type="number" value={startingBalance} onChange={e => setStartingBalance(Number(e.target.value))} min="100" disabled={isBotRunning} style={dis(isBotRunning)} />
         </div>
 
         <div className="input-group">
-          <label>Leverage (1x - 100x)</label>
-          <select
-            value={leverage}
-            onChange={e => setLeverage(Number(e.target.value))}
-            disabled={isBotRunning}
-            style={selectStyle(isBotRunning)}
-          >
+          <label>Leverage</label>
+          <select value={leverage} onChange={e => setLeverage(Number(e.target.value))} disabled={isBotRunning} style={sel(isBotRunning)}>
             {[1, 2, 3, 5, 10, 15, 20, 25, 50, 75, 100].map(lev => (
               <option key={lev} value={lev}>{lev}x</option>
             ))}
@@ -899,54 +1135,38 @@ function SettingsPage({ api, logout, setError, setSuccess, botStatus }) {
 
         <div className="input-group">
           <label>Timeframe</label>
-          <select
-            value={timeframe}
-            onChange={e => setTimeframe(e.target.value)}
-            disabled={isBotRunning}
-            style={selectStyle(isBotRunning)}
-          >
-            {TIMEFRAME_OPTIONS.map(tf => (
-              <option key={tf} value={tf}>{tf}</option>
-            ))}
+          <select value={timeframe} onChange={e => setTimeframe(e.target.value)} disabled={isBotRunning} style={sel(isBotRunning)}>
+            {TIMEFRAME_OPTIONS.map(tf => <option key={tf} value={tf}>{tf}</option>)}
           </select>
-          <p style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
-            Candle timeframe for analysis (uses 1000 candles)
-          </p>
+          <p style={{ fontSize: 12, color: '#4a5060', marginTop: 4 }}>Candle timeframe for analysis (uses 1000 candles)</p>
         </div>
 
         <div className="input-group">
           <label>Trading Coins (max 5)</label>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
-            {AVAILABLE_COINS.map(coin => (
-              <div
-                key={coin}
-                onClick={() => toggleCoin(coin)}
-                style={{
-                  padding: '8px 12px',
-                  borderRadius: 6,
-                  border: selectedCoins.includes(coin) ? '2px solid #e94560' : '1px solid #333',
-                  background: selectedCoins.includes(coin) ? 'rgba(233, 69, 96, 0.2)' : '#1a1a2e',
-                  color: selectedCoins.includes(coin) ? '#e94560' : '#a0a0a0',
+            {AVAILABLE_COINS.map(coin => {
+              const active = selectedCoins.includes(coin)
+              return (
+                <div key={coin} onClick={() => toggleCoin(coin)} style={{
+                  padding: '7px 12px', borderRadius: 8,
+                  border: active ? '2px solid #e94560' : '1px solid rgba(255,255,255,0.07)',
+                  background: active ? 'rgba(233,69,96,0.15)' : '#0f1318',
+                  color: active ? '#e94560' : '#8b95a5',
                   cursor: isBotRunning ? 'not-allowed' : 'pointer',
-                  opacity: isBotRunning ? 0.5 : 1,
-                  fontSize: 14,
-                  fontWeight: selectedCoins.includes(coin) ? 600 : 400
-                }}
-              >
-                {getCoinDisplayName(coin)}
-              </div>
-            ))}
+                  opacity: isBotRunning ? 0.45 : 1,
+                  fontSize: 13, fontWeight: active ? 700 : 400, transition: 'all 0.15s'
+                }}>
+                  {coin.split('/')[0]}
+                </div>
+              )
+            })}
           </div>
-          <p style={{ fontSize: 12, color: '#666', marginTop: 8 }}>
-            Selected: {selectedCoins.map(getCoinDisplayName).join(', ')}
+          <p style={{ fontSize: 12, color: '#4a5060', marginTop: 8 }}>
+            Selected: {selectedCoins.map(c => c.split('/')[0]).join(', ')}
           </p>
         </div>
 
-        <button
-          className="btn btn-primary"
-          onClick={saveSettings}
-          disabled={settingsLoading || isBotRunning}
-        >
+        <button className="btn btn-primary" onClick={saveSettings} disabled={settingsLoading || isBotRunning}>
           {settingsLoading ? 'Saving...' : 'Save Trading Settings'}
         </button>
       </div>
@@ -954,95 +1174,41 @@ function SettingsPage({ api, logout, setError, setSuccess, botStatus }) {
       {/* ── Risk Management ── */}
       <div className="card">
         <h2 className="card-title">Risk Management</h2>
-
-        {isBotRunning && (
-          <div className="error-message" style={{ marginBottom: 16 }}>
-            Stop the bot to change risk settings
-          </div>
-        )}
+        <BotRunningWarning />
 
         <div className="input-group">
           <label>Risk Per Trade (%)</label>
-          <input
-            type="number"
-            value={riskPerTrade}
-            onChange={e => setRiskPerTrade(Number(e.target.value))}
-            min="0.1" max="10" step="0.1"
-            disabled={isBotRunning}
-            style={inputStyle(isBotRunning)}
-          />
-          <p style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
-            Percentage of balance risked per trade (0.1% - 10%)
-          </p>
+          <input type="number" value={riskPerTrade} onChange={e => setRiskPerTrade(Number(e.target.value))} min="0.1" max="10" step="0.1" disabled={isBotRunning} style={dis(isBotRunning)} />
+          <p style={{ fontSize: 12, color: '#4a5060', marginTop: 4 }}>Percentage of balance risked per trade (0.1%–10%)</p>
         </div>
 
         <div className="input-group">
           <label>Stop Loss (%)</label>
-          <input
-            type="number"
-            value={stopLossPct}
-            onChange={e => setStopLossPct(Number(e.target.value))}
-            min="0.1" max="10" step="0.1"
-            disabled={isBotRunning}
-            style={inputStyle(isBotRunning)}
-          />
-          <p style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
-            Exit position if loss exceeds this percentage
-          </p>
+          <input type="number" value={stopLossPct} onChange={e => setStopLossPct(Number(e.target.value))} min="0.1" max="10" step="0.1" disabled={isBotRunning} style={dis(isBotRunning)} />
+          <p style={{ fontSize: 12, color: '#4a5060', marginTop: 4 }}>Exit if loss exceeds this percentage</p>
         </div>
 
         <div className="input-group">
           <label>Take Profit (%)</label>
-          <input
-            type="number"
-            value={takeProfitPct}
-            onChange={e => setTakeProfitPct(Number(e.target.value))}
-            min="0.1" max="20" step="0.1"
-            disabled={isBotRunning}
-            style={inputStyle(isBotRunning)}
-          />
-          <p style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
-            Exit position when profit reaches this percentage
-          </p>
+          <input type="number" value={takeProfitPct} onChange={e => setTakeProfitPct(Number(e.target.value))} min="0.1" max="20" step="0.1" disabled={isBotRunning} style={dis(isBotRunning)} />
+          <p style={{ fontSize: 12, color: '#4a5060', marginTop: 4 }}>Exit when profit reaches this percentage</p>
         </div>
 
         <div className="input-group">
           <label>Trade Cooldown (minutes)</label>
-          <select
-            value={tradeCooldown}
-            onChange={e => setTradeCooldown(Number(e.target.value))}
-            disabled={isBotRunning}
-            style={selectStyle(isBotRunning)}
-          >
-            {[1, 2, 3, 5, 10, 15, 20, 30, 60].map(min => (
-              <option key={min} value={min}>{min} min</option>
-            ))}
+          <select value={tradeCooldown} onChange={e => setTradeCooldown(Number(e.target.value))} disabled={isBotRunning} style={sel(isBotRunning)}>
+            {[1, 2, 3, 5, 10, 15, 20, 30, 60].map(min => <option key={min} value={min}>{min} min</option>)}
           </select>
-          <p style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
-            Wait time between trades per coin
-          </p>
+          <p style={{ fontSize: 12, color: '#4a5060', marginTop: 4 }}>Wait time between trades per coin</p>
         </div>
 
         <div className="input-group">
           <label>Minimum Confidence (%)</label>
-          <input
-            type="number"
-            value={minConfidence}
-            onChange={e => setMinConfidence(Number(e.target.value))}
-            min="50" max="95" step="1"
-            disabled={isBotRunning}
-            style={inputStyle(isBotRunning)}
-          />
-          <p style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
-            Only trade when signal confidence exceeds this (50% - 95%)
-          </p>
+          <input type="number" value={minConfidence} onChange={e => setMinConfidence(Number(e.target.value))} min="50" max="95" step="1" disabled={isBotRunning} style={dis(isBotRunning)} />
+          <p style={{ fontSize: 12, color: '#4a5060', marginTop: 4 }}>Only trade when ML signal confidence exceeds this (50%–95%)</p>
         </div>
 
-        <button
-          className="btn btn-primary"
-          onClick={saveSettings}
-          disabled={settingsLoading || isBotRunning}
-        >
+        <button className="btn btn-primary" onClick={saveSettings} disabled={settingsLoading || isBotRunning}>
           {settingsLoading ? 'Saving...' : 'Save Risk Settings'}
         </button>
       </div>
@@ -1050,81 +1216,44 @@ function SettingsPage({ api, logout, setError, setSuccess, botStatus }) {
       {/* ── Compounding & Protection ── */}
       <div className="card">
         <h2 className="card-title">Compounding & Protection</h2>
-        <p style={{ fontSize: 13, color: '#a0a0a0', marginBottom: 16 }}>
-          These settings control how profits compound and how the bot protects capital.
+        <p style={{ fontSize: 13, color: '#8b95a5', marginBottom: 16, lineHeight: 1.5 }}>
+          Controls how profits compound and how the bot protects capital on the path to growth.
         </p>
-
-        {isBotRunning && (
-          <div className="error-message" style={{ marginBottom: 16 }}>
-            Stop the bot to change these settings
-          </div>
-        )}
+        <BotRunningWarning />
 
         <div className="input-group">
           <label>Trailing Stop (%)</label>
-          <input
-            type="number"
-            value={trailingStopPct}
-            onChange={e => setTrailingStopPct(Number(e.target.value))}
-            min="0.1" max="5" step="0.1"
-            disabled={isBotRunning}
-            style={inputStyle(isBotRunning)}
-          />
-          <p style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
-            Once in profit, exit if price drops this % from its peak. Locks in gains on trending moves. (0.1% – 5%)
+          <input type="number" value={trailingStopPct} onChange={e => setTrailingStopPct(Number(e.target.value))} min="0.1" max="5" step="0.1" disabled={isBotRunning} style={dis(isBotRunning)} />
+          <p style={{ fontSize: 12, color: '#4a5060', marginTop: 4 }}>
+            Locks in gains — exits if price drops this % from its peak while in profit. (0.1%–5%)
           </p>
         </div>
 
         <div className="input-group">
           <label>Max Drawdown Circuit Breaker (%)</label>
-          <input
-            type="number"
-            value={maxDrawdownPct}
-            onChange={e => setMaxDrawdownPct(Number(e.target.value))}
-            min="5" max="50" step="1"
-            disabled={isBotRunning}
-            style={inputStyle(isBotRunning)}
-          />
-          <p style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
-            Stop opening new positions if account drawdown exceeds this. Prevents runaway losses. (5% – 50%)
+          <input type="number" value={maxDrawdownPct} onChange={e => setMaxDrawdownPct(Number(e.target.value))} min="5" max="50" step="1" disabled={isBotRunning} style={dis(isBotRunning)} />
+          <p style={{ fontSize: 12, color: '#4a5060', marginTop: 4 }}>
+            Stops opening new positions if account drawdown exceeds this. Prevents runaway losses. (5%–50%)
           </p>
         </div>
 
         <div className="input-group">
           <label>Profit Risk Multiplier</label>
-          <input
-            type="number"
-            value={profitRiskMultiplier}
-            onChange={e => setProfitRiskMultiplier(Number(e.target.value))}
-            min="1.0" max="3.0" step="0.1"
-            disabled={isBotRunning}
-            style={inputStyle(isBotRunning)}
-          />
-          <p style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
-            Apply this risk multiplier to profits above starting balance. 1.5 = 50% more aggressive on house money. (1.0 – 3.0)
+          <input type="number" value={profitRiskMultiplier} onChange={e => setProfitRiskMultiplier(Number(e.target.value))} min="1.0" max="3.0" step="0.1" disabled={isBotRunning} style={dis(isBotRunning)} />
+          <p style={{ fontSize: 12, color: '#4a5060', marginTop: 4 }}>
+            Applies extra risk to profits above starting balance — "house money" mode. 1.5 = 50% more aggressive on profits. (1.0–3.0)
           </p>
         </div>
 
         <div className="input-group">
           <label>Model Retrain Interval (cycles)</label>
-          <input
-            type="number"
-            value={retrainEvery}
-            onChange={e => setRetrainEvery(Number(e.target.value))}
-            min="10" max="500" step="10"
-            disabled={isBotRunning}
-            style={inputStyle(isBotRunning)}
-          />
-          <p style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
-            Retrain the ML model every N cycles to adapt to current market conditions. Lower = more adaptive, slower. (10 – 500)
+          <input type="number" value={retrainEvery} onChange={e => setRetrainEvery(Number(e.target.value))} min="10" max="500" step="10" disabled={isBotRunning} style={dis(isBotRunning)} />
+          <p style={{ fontSize: 12, color: '#4a5060', marginTop: 4 }}>
+            Retrain the ML model every N cycles to adapt to current market conditions. (10–500)
           </p>
         </div>
 
-        <button
-          className="btn btn-primary"
-          onClick={saveSettings}
-          disabled={settingsLoading || isBotRunning}
-        >
+        <button className="btn btn-primary" onClick={saveSettings} disabled={settingsLoading || isBotRunning}>
           {settingsLoading ? 'Saving...' : 'Save Compounding Settings'}
         </button>
       </div>
@@ -1132,44 +1261,22 @@ function SettingsPage({ api, logout, setError, setSuccess, botStatus }) {
       {/* ── API Credentials ── */}
       <div className="card">
         <h2 className="card-title">Blofin API Credentials</h2>
-
         {hasCredentials && (
-          <div className="success-message" style={{ marginBottom: 16 }}>
-            API credentials configured
-          </div>
+          <div className="success-message" style={{ marginBottom: 16 }}>API credentials configured</div>
         )}
-
         <form onSubmit={saveCredentials}>
           <div className="input-group">
             <label>API Key</label>
-            <input
-              type="text"
-              value={apiKey}
-              onChange={e => setApiKey(e.target.value)}
-              placeholder="Enter your Blofin API key"
-            />
+            <input type="text" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="Enter your Blofin API key" />
           </div>
-
           <div className="input-group">
             <label>API Secret</label>
-            <input
-              type="password"
-              value={apiSecret}
-              onChange={e => setApiSecret(e.target.value)}
-              placeholder="Enter your API secret"
-            />
+            <input type="password" value={apiSecret} onChange={e => setApiSecret(e.target.value)} placeholder="Enter your API secret" />
           </div>
-
           <div className="input-group">
-            <label>API Password (Passphrase)</label>
-            <input
-              type="password"
-              value={apiPassword}
-              onChange={e => setApiPassword(e.target.value)}
-              placeholder="Enter your API passphrase"
-            />
+            <label>API Passphrase</label>
+            <input type="password" value={apiPassword} onChange={e => setApiPassword(e.target.value)} placeholder="Enter your API passphrase" />
           </div>
-
           <button type="submit" className="btn btn-primary" disabled={loading || (!apiKey && !apiSecret)}>
             {loading ? 'Saving...' : 'Save Credentials'}
           </button>
@@ -1179,250 +1286,148 @@ function SettingsPage({ api, logout, setError, setSuccess, botStatus }) {
       {/* ── Account ── */}
       <div className="card">
         <h2 className="card-title">Account</h2>
-        <button className="btn btn-secondary" onClick={logout}>
-          Logout
-        </button>
+        <button className="btn btn-secondary" onClick={logout}>Logout</button>
       </div>
 
       <div className="card">
         <h2 className="card-title">Install App</h2>
-        <p style={{ color: '#a0a0a0', fontSize: 14, marginBottom: 16 }}>
-          On Android: Open browser menu and tap "Add to Home Screen" to install this app on your device.
+        <p style={{ color: '#8b95a5', fontSize: 14 }}>
+          On Android: open browser menu and tap "Add to Home Screen" to install as an app.
         </p>
       </div>
     </>
   )
 }
 
-function OptimizePage({ api, setError, setSuccess }) {
-  const [optimizeResults, setOptimizeResults] = useState(null)
-  const [optimizeLoading, setOptimizeLoading] = useState(false)
-  const [optimizeStatus, setOptimizeStatus] = useState('')
-  const [optimizeError, setOptimizeError] = useState('')
-  const [selectedConfig, setSelectedConfig] = useState(null)
-  const [applyLoading, setApplyLoading] = useState(false)
-  const pollIntervalRef = useRef(null)
+/* ─────────────────────────── Admin ─────────────────────────── */
 
-  useEffect(() => {
-    return () => {
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current)
-      }
-    }
-  }, [])
+function AdminPage({ api, setError, setSuccess }) {
+  const [users, setUsers] = useState([])
+  const [loading, setLoading] = useState(true)
 
-  const pollForResults = async () => {
+  const loadUsers = async () => {
+    setLoading(true)
     try {
-      const res = await api.get('/optimize/status')
-      if (res.data.status === 'completed') {
-        setOptimizeResults(res.data.result)
-        setOptimizeLoading(false)
-        setOptimizeStatus('')
-        if (pollIntervalRef.current) {
-          clearInterval(pollIntervalRef.current)
-          pollIntervalRef.current = null
-        }
-        return true
-      } else if (res.data.status === 'failed') {
-        setOptimizeError(res.data.error || 'Optimization failed')
-        setOptimizeLoading(false)
-        setOptimizeStatus('')
-        if (pollIntervalRef.current) {
-          clearInterval(pollIntervalRef.current)
-          pollIntervalRef.current = null
-        }
-        return true
-      } else {
-        setOptimizeStatus(res.data.message || 'Running...')
-        return false
-      }
+      const res = await api.get('/admin/users')
+      setUsers(res.data)
     } catch (e) {
-      return false
+      setError('Failed to load users')
     }
+    setLoading(false)
   }
 
-  const runOptimization = async () => {
-    if (pollIntervalRef.current) {
-      clearInterval(pollIntervalRef.current)
-    }
+  useEffect(() => { loadUsers() }, [])
 
-    setOptimizeLoading(true)
-    setOptimizeError('')
-    setOptimizeResults(null)
-    setSelectedConfig(null)
-    setOptimizeStatus('Starting optimization...')
-
+  const approveUser = async (userId, approved) => {
     try {
-      await api.post('/optimize/start')
-
-      pollIntervalRef.current = setInterval(async () => {
-        await pollForResults()
-      }, 5000)
-
+      await api.post(`/admin/users/${userId}/approve`, { approved })
+      setSuccess(approved ? 'User approved' : 'User access revoked')
+      loadUsers()
     } catch (e) {
-      setOptimizeError(e.response?.data?.detail || 'Failed to start optimization')
-      setOptimizeLoading(false)
+      setError('Failed to update user')
     }
   }
 
-  const applyConfig = async (config) => {
-    setApplyLoading(true)
+  const toggleAdmin = async (userId, makeAdmin) => {
     try {
-      await api.put('/settings', {
-        leverage: config.leverage,
-        risk_per_trade: config.risk_per_trade,
-        stop_loss_pct: config.stop_loss_pct,
-        take_profit_pct: config.take_profit_pct,
-        trade_cooldown: config.trade_cooldown,
-        min_confidence: config.min_confidence,
-        timeframe: config.timeframe,
-        // Apply optimized trailing stop if present, otherwise keep existing
-        ...(config.trailing_stop_pct != null && { trailing_stop_pct: config.trailing_stop_pct }),
-      })
-      setSuccess(`Applied: ${config.timeframe} | ${config.leverage}x | ${(config.min_confidence * 100).toFixed(0)}% conf`)
-      setSelectedConfig(config)
+      await api.post(`/admin/users/${userId}/permissions`, { is_admin: makeAdmin })
+      setSuccess(makeAdmin ? 'Admin privileges granted' : 'Admin privileges removed')
+      loadUsers()
     } catch (e) {
-      setError('Failed to apply settings - stop bot first')
-    }
-    setApplyLoading(false)
-  }
-
-  const formatCooldown = (seconds) => {
-    if (seconds < 60) return `${seconds}s`
-    return `${Math.round(seconds / 60)}m`
-  }
-
-  const resetOptimization = async () => {
-    try {
-      await api.post('/optimize/reset')
-      setOptimizeLoading(false)
-      setOptimizeStatus('')
-      setOptimizeError('')
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current)
-        pollIntervalRef.current = null
-      }
-      setSuccess('Optimization reset - you can start a new one')
-    } catch (e) {
-      setError('Failed to reset optimization')
+      setError('Failed to update permissions')
     }
   }
+
+  if (loading) return <div className="loading"><div className="spinner"></div></div>
+
+  const pending  = users.filter(u => !u.approved)
+  const approved = users.filter(u => u.approved)
 
   return (
     <>
       <div className="card">
-        <h2 className="card-title">Parameter Optimizer</h2>
-        <p style={{ color: '#a0a0a0', fontSize: 14, marginBottom: 16 }}>
-          Automatically find the best trading parameters for your selected coins. Tests ~1,350 configurations across all timeframes including trailing stop distances. Returns top performers ranked by ROI, win rate, and trade count.
-        </p>
-        <p style={{ color: '#e94560', fontSize: 12, marginBottom: 16 }}>
-          Warning: This can take 5-15 minutes to complete.
-        </p>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button
-            className="btn btn-primary"
-            onClick={runOptimization}
-            disabled={optimizeLoading}
-          >
-            {optimizeLoading ? (optimizeStatus || 'Optimizing...') : 'Find Best Parameters'}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <h2 className="card-title" style={{ margin: 0 }}>User Management</h2>
+          <button onClick={loadUsers} style={{
+            padding: '6px 12px', background: 'rgba(233,69,96,0.12)',
+            border: '1px solid rgba(233,69,96,0.3)', borderRadius: 8,
+            color: '#e94560', cursor: 'pointer', fontSize: 12, fontWeight: 600
+          }}>
+            Refresh
           </button>
-          {optimizeLoading && (
-            <button
-              className="btn"
-              onClick={resetOptimization}
-              style={{ background: '#e94560' }}
-            >
-              Reset
-            </button>
-          )}
         </div>
 
-        {optimizeError && (
-          <div className="error-message" style={{ marginTop: 16 }}>{optimizeError}</div>
+        {users.length === 0 && (
+          <p style={{ color: '#8b95a5', textAlign: 'center', padding: 20 }}>No users found</p>
+        )}
+
+        {pending.length > 0 && (
+          <>
+            <div style={{ fontSize: 12, color: '#f5a623', fontWeight: 600, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              Pending Approval ({pending.length})
+            </div>
+            {pending.map(user => <UserItem key={user.id} user={user} onApprove={approveUser} onToggleAdmin={toggleAdmin} />)}
+            <div style={{ height: 12 }} />
+          </>
+        )}
+
+        {approved.length > 0 && (
+          <>
+            <div style={{ fontSize: 12, color: '#00d4aa', fontWeight: 600, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              Approved ({approved.length})
+            </div>
+            {approved.map(user => <UserItem key={user.id} user={user} onApprove={approveUser} onToggleAdmin={toggleAdmin} />)}
+          </>
         )}
       </div>
 
-      {optimizeResults && (
-        <div className="card">
-          <h2 className="card-title">Top Configurations</h2>
-          <div style={{ fontSize: 12, color: '#a0a0a0', marginBottom: 12 }}>
-            Tested {optimizeResults.total_tested} configurations | {optimizeResults.valid_configs} profitable | {optimizeResults.days_tested} days backtest
-          </div>
-          <div style={{ fontSize: 12, color: '#a0a0a0', marginBottom: 16 }}>
-            Coins: {optimizeResults.selected_coins?.map(c => c.split('/')[0]).join(', ')}
-          </div>
-
-          {optimizeResults.top_configs?.length === 0 ? (
-            <p style={{ color: '#e94560' }}>No profitable configurations found. Try different coins.</p>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {optimizeResults.top_configs?.map((config, i) => (
-                <div
-                  key={i}
-                  style={{
-                    padding: 12,
-                    background: selectedConfig === config ? 'rgba(38, 166, 154, 0.2)' : 'rgba(233, 69, 96, 0.1)',
-                    borderRadius: 8,
-                    border: selectedConfig === config ? '1px solid #26a69a' : '1px solid rgba(233, 69, 96, 0.3)'
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                    <span style={{ fontSize: 14, fontWeight: 600, color: '#e94560' }}>
-                      #{i + 1} — {config.timeframe}
-                    </span>
-                    <span style={{
-                      fontSize: 14,
-                      fontWeight: 700,
-                      color: config.total_return >= 0 ? '#26a69a' : '#e94560'
-                    }}>
-                      {config.total_return >= 0 ? '+' : ''}{config.total_return.toFixed(1)}% ROI
-                    </span>
-                  </div>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, fontSize: 12, color: '#a0a0a0', marginBottom: 8 }}>
-                    <span>Leverage: {config.leverage}x</span>
-                    <span>Risk: {(config.risk_per_trade * 100).toFixed(0)}%</span>
-                    <span>SL: {(config.stop_loss_pct * 100).toFixed(2)}%</span>
-                    <span>TP: {(config.take_profit_pct * 100).toFixed(2)}%</span>
-                    <span>Trail: {config.trailing_stop_pct != null ? `${(config.trailing_stop_pct * 100).toFixed(1)}%` : '—'}</span>
-                    <span>Conf: {(config.min_confidence * 100).toFixed(0)}%</span>
-                    <span>Cooldown: {formatCooldown(config.trade_cooldown)}</span>
-                    <span>Score: {config.score?.toFixed(3)}</span>
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12 }}>
-                    <span style={{ color: '#26a69a' }}>
-                      {config.win_rate.toFixed(1)}% win | {config.total_trades} trades | ${config.total_pnl.toFixed(0)} PnL
-                    </span>
-                    <button
-                      className="btn btn-secondary"
-                      style={{ padding: '4px 12px', fontSize: 11 }}
-                      onClick={() => applyConfig(config)}
-                      disabled={applyLoading}
-                    >
-                      Apply
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
       <div className="card">
-        <h2 className="card-title">How It Works</h2>
+        <h2 className="card-title">Admin Guide</h2>
         <ul className="strategy-list">
-          <li><strong>Smart Search:</strong> Tests 100 random parameter combinations per timeframe</li>
-          <li><strong>Trailing Stop Search:</strong> Also optimises trailing stop distance (0.5%–2%)</li>
-          <li><strong>Composite Score:</strong> Ranks by 50% ROI + 30% Win Rate + 20% Trade Count</li>
-          <li><strong>Minimum Trades:</strong> Rejects configs with fewer than 15 trades (avoids overfitting)</li>
-          <li><strong>Same ML Pipeline:</strong> Uses identical logic as live trading for accuracy</li>
+          <li>New registrations require approval before accessing the bot</li>
+          <li>Approved users can start the bot and manage settings</li>
+          <li>Admin users can approve/revoke other users and grant admin rights</li>
+          <li>Revoking access immediately prevents the user from logging in</li>
         </ul>
       </div>
     </>
   )
 }
+
+function UserItem({ user, onApprove, onToggleAdmin }) {
+  return (
+    <div className="user-item">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div>
+          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 5 }}>{user.username}</div>
+          <div>
+            <span className={`user-tag ${user.approved ? 'approved' : 'pending'}`}>
+              {user.approved ? 'Approved' : 'Pending'}
+            </span>
+            {user.is_admin && <span className="user-tag is-admin">Admin</span>}
+          </div>
+        </div>
+        <span style={{ fontSize: 12, color: '#4a5060' }}>#{user.id}</span>
+      </div>
+      <div className="user-actions">
+        <button
+          className={user.approved ? 'revoke' : 'approve'}
+          onClick={() => onApprove(user.id, !user.approved)}
+        >
+          {user.approved ? 'Revoke Access' : 'Approve'}
+        </button>
+        <button
+          className={user.is_admin ? 'revoke' : 'admin-on'}
+          onClick={() => onToggleAdmin(user.id, !user.is_admin)}
+        >
+          {user.is_admin ? 'Remove Admin' : 'Make Admin'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/* ─────────────────────────── Nav ─────────────────────────── */
 
 function NavItem({ icon, label, active, onClick }) {
   return (
@@ -1433,9 +1438,11 @@ function NavItem({ icon, label, active, onClick }) {
   )
 }
 
+/* ─────────────────────────── Icons ─────────────────────────── */
+
 function HomeIcon() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
       <polyline points="9 22 9 12 15 12 15 22"></polyline>
     </svg>
@@ -1444,7 +1451,7 @@ function HomeIcon() {
 
 function ChartIcon() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <line x1="18" y1="20" x2="18" y2="10"></line>
       <line x1="12" y1="20" x2="12" y2="4"></line>
       <line x1="6" y1="20" x2="6" y2="14"></line>
@@ -1454,7 +1461,7 @@ function ChartIcon() {
 
 function BookIcon() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
       <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
     </svg>
@@ -1463,7 +1470,7 @@ function BookIcon() {
 
 function GearIcon() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="3"></circle>
       <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
     </svg>
@@ -1472,9 +1479,17 @@ function GearIcon() {
 
 function SearchIcon() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="11" cy="11" r="8"></circle>
       <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+    </svg>
+  )
+}
+
+function ShieldIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
     </svg>
   )
 }
