@@ -459,8 +459,24 @@ async def run_backtest(user = Depends(get_current_user)):
     user_id = user['user_id']
     user_settings = get_user_settings(user_id)
 
+    # Fetch credentials so the backtest uses real exchange data rather than
+    # falling back to the BTC-price random-walk simulator.
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT encrypted_api_key, encrypted_api_secret, encrypted_api_password "
+                "FROM users WHERE id = %s", (user_id,)
+            )
+            cred_row = cur.fetchone()
+    bt_api_key      = decrypt_credential(cred_row['encrypted_api_key'])      if cred_row and cred_row['encrypted_api_key']      else None
+    bt_api_secret   = decrypt_credential(cred_row['encrypted_api_secret'])   if cred_row and cred_row['encrypted_api_secret']   else None
+    bt_api_password = decrypt_credential(cred_row['encrypted_api_password']) if cred_row and cred_row['encrypted_api_password'] else None
+
     bot = TradingService(
         user_id=user_id,
+        api_key=bt_api_key,
+        api_secret=bt_api_secret,
+        api_password=bt_api_password,
         starting_balance=user_settings['starting_balance'],
         leverage=user_settings['leverage'],
         selected_coins=user_settings['selected_coins'],

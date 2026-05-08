@@ -294,18 +294,19 @@ class TradingService:
         )
         return df
 
-    def create_labels(self, df, forward_periods=None, threshold=None):
+    def create_labels(self, df, forward_periods=None, threshold=0.005):
         """
-        Labels scaled to the trading timeframe.
-        Longer TFs need a larger return threshold to avoid noise:
-          5m → 0.5%, 15m → 0.7%, 1h → 1.1%, 4h → 1.7%, 1d → 3.0%
-        Forward periods kept to ≤5 for short TFs, ≥2 for long.
+        Generate directional labels from future price returns.
+
+        forward_periods is adapted to the timeframe so we don't look absurdly
+        far ahead on long timeframes (5m → 5 candles = 25 min, 1h → 2 candles
+        = 2 h, 4h → 2 candles = 8 h). Threshold stays at 0.5% for all
+        timeframes — the model has enough samples to learn with this value, and
+        it aligns with realistic leveraged-trade profit targets.
         """
         tf_minutes = self._get_timeframe_minutes()
         if forward_periods is None:
             forward_periods = max(2, min(5, round(25 / tf_minutes)))
-        if threshold is None:
-            threshold = max(0.003, 0.005 * (tf_minutes / 5) ** 0.30)
         df['future_return'] = df['close'].shift(-forward_periods) / df['close'] - 1
         df['signal'] = 0
         df.loc[df['future_return'] > threshold, 'signal'] = 1
