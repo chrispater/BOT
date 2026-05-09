@@ -306,6 +306,10 @@ class TradingService:
         trade would not have been stopped out before reaching target. Mirrors
         for SHORT. Trains the model on trades that actually survive the exit
         rules, dramatically cutting noise vs a raw threshold filter.
+
+        Fallback: if clean labeling produces < 50 labeled rows (tight SL / low
+        volatility), revert to plain threshold labeling so the model always has
+        enough training data.
         """
         tf_minutes = self._get_timeframe_minutes()
         if forward_periods is None:
@@ -318,8 +322,8 @@ class TradingService:
         sl        = self.stop_loss_pct
 
         future_return  = np.full(n, np.nan)
-        future_min_pct = np.full(n, np.nan)   # worst dip  — long stop validation
-        future_max_pct = np.full(n, np.nan)   # worst spike — short stop validation
+        future_min_pct = np.full(n, np.nan)
+        future_max_pct = np.full(n, np.nan)
 
         for i in range(n - forward_periods):
             c = close_arr[i]
@@ -333,10 +337,21 @@ class TradingService:
         df['future_min_pct'] = future_min_pct
         df['future_max_pct'] = future_max_pct
         df['signal'] = 0
-        # Long: price reaches target AND never hit stop en route
         df.loc[(df['future_return'] > threshold) & (df['future_min_pct'] > -sl), 'signal'] = 1
-        # Short: price reaches target AND never hit stop en route
         df.loc[(df['future_return'] < -threshold) & (df['future_max_pct'] < sl), 'signal'] = -1
+
+        # Fallback: if clean labeling is too sparse, use plain threshold so the
+        # model always has enough examples to train.
+        labeled = int((df['signal'] != 0).sum())
+        if labeled < 50:
+            logger.warning(
+                f"User {self.user_id}: Clean labels sparse ({labeled} rows) — "
+                f"falling back to plain threshold labeling"
+            )
+            df['signal'] = 0
+            df.loc[df['future_return'] > threshold, 'signal'] = 1
+            df.loc[df['future_return'] < -threshold, 'signal'] = -1
+
         return df
 
     def prepare_features(self, df):
@@ -516,9 +531,8 @@ class TradingService:
     def _entry_filter(self, signal: int, df) -> bool:
         """
         Pre-entry quality gate. Requires:
-          • ADX ≥ 18  — trending market, not sideways chop
-          • volume_ratio ≥ 0.65 — above-average participation
-        Filters low-conviction setups where leverage amplifies noise into losses.
+          • ADX ≥ 12  — some directional momentum (loose to allow ranging markets)
+          • volume_ratio ≥ 0.40 — minimum participation threshold
         Returns True = entry allowed.
         """
         if df is None or len(df) < 5:
@@ -528,7 +542,13 @@ class TradingService:
         vol_raw = latest.get('volume_ratio', 1.0)
         adx = 25.0 if pd.isna(adx_raw) else float(adx_raw)
         vol = 1.0  if pd.isna(vol_raw) else float(vol_raw)
-        return adx >= 18 and vol >= 0.65
+        if adx < 12:
+            logger.debug(f"User {self.user_id}: Entry blocked — ADX {adx:.1f} < 12 (low trend strength)")
+            return False
+        if vol < 0.40:
+            logger.debug(f"User {self.user_id}: Entry blocked — volume_ratio {vol:.2f} < 0.40 (thin volume)")
+            return False
+        return True
 
     def _get_market_regime(self) -> str:
         """
