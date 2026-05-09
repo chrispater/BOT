@@ -796,9 +796,15 @@ class TradingService:
                 amount = size / contract_size
 
                 try:
-                    self.exchange.set_leverage(self.leverage, symbol)
+                    # Blofin requires isolated margin mode before leverage can be changed
+                    try:
+                        self.exchange.set_margin_mode('isolated', symbol)
+                    except Exception:
+                        pass  # already set, or exchange doesn't need explicit call
+                    self.exchange.set_leverage(self.leverage, symbol, params={'marginMode': 'isolated'})
+                    logger.info(f"User {self.user_id}: Leverage set to {self.leverage}x on {symbol}")
                 except Exception as e:
-                    logger.warning(f"User {self.user_id}: set_leverage failed: {e}")
+                    logger.error(f"User {self.user_id}: set_leverage({self.leverage}x, {symbol}) FAILED — {type(e).__name__}: {e}. Exchange may be using a different leverage.")
 
                 order = self.exchange.create_order(
                     symbol=symbol, type='market', side=side, amount=amount,
@@ -821,7 +827,8 @@ class TradingService:
                     self.on_trade(self.user_id, symbol, pos_side, 'open', size, price, None, confidence, None)
                 logger.info(
                     f"User {self.user_id}: [LIVE] Open {pos_side.upper()} {symbol} @ ${price:.2f} | "
-                    f"Margin ${margin:.2f} vol×{vol_mult:.2f} regime×{regime_mult:.2f}"
+                    f"Margin ${margin:.2f} · {self.leverage}x lev · notional ${notional:.2f} | "
+                    f"vol×{vol_mult:.2f} regime×{regime_mult:.2f}"
                 )
 
             elif position is not None:
