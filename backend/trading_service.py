@@ -796,13 +796,13 @@ class TradingService:
                 amount = size / contract_size
 
                 try:
-                    # Blofin requires isolated margin mode before leverage can be changed
+                    # Cross margin: set mode first, then leverage
                     try:
-                        self.exchange.set_margin_mode('isolated', symbol)
+                        self.exchange.set_margin_mode('cross', symbol)
                     except Exception:
                         pass  # already set, or exchange doesn't need explicit call
-                    self.exchange.set_leverage(self.leverage, symbol, params={'marginMode': 'isolated'})
-                    logger.info(f"User {self.user_id}: Leverage set to {self.leverage}x on {symbol}")
+                    self.exchange.set_leverage(self.leverage, symbol, params={'marginMode': 'cross'})
+                    logger.info(f"User {self.user_id}: Leverage set to {self.leverage}x (cross) on {symbol}")
                 except Exception as e:
                     logger.error(f"User {self.user_id}: set_leverage({self.leverage}x, {symbol}) FAILED — {type(e).__name__}: {e}. Exchange may be using a different leverage.")
 
