@@ -66,6 +66,7 @@ class TradingSettings(BaseModel):
     trade_cooldown: Optional[int] = None
     min_confidence: Optional[float] = None
     timeframe: Optional[str] = None
+    simulation_mode: Optional[bool] = None
     # Compounding & risk enhancement params
     trailing_stop_pct: Optional[float] = None
     max_drawdown_pct: Optional[float] = None
@@ -251,6 +252,7 @@ async def update_settings(settings: TradingSettings, user = Depends(get_current_
         trade_cooldown=settings.trade_cooldown,
         min_confidence=settings.min_confidence,
         timeframe=settings.timeframe,
+        simulation_mode=settings.simulation_mode,
         trailing_stop_pct=settings.trailing_stop_pct,
         max_drawdown_pct=settings.max_drawdown_pct,
         retrain_every=settings.retrain_every,
@@ -277,11 +279,19 @@ async def start_bot(user = Depends(get_current_user)):
         """, (user_id,))
         row = cur.fetchone()
 
-    api_key = decrypt_credential(row['encrypted_api_key']) if row and row['encrypted_api_key'] else None
-    api_secret = decrypt_credential(row['encrypted_api_secret']) if row and row['encrypted_api_secret'] else None
-    api_password = decrypt_credential(row['encrypted_api_password']) if row and row['encrypted_api_password'] else None
+    raw_api_key = decrypt_credential(row['encrypted_api_key']) if row and row['encrypted_api_key'] else None
+    raw_api_secret = decrypt_credential(row['encrypted_api_secret']) if row and row['encrypted_api_secret'] else None
+    raw_api_password = decrypt_credential(row['encrypted_api_password']) if row and row['encrypted_api_password'] else None
 
     user_settings = get_user_settings(user_id)
+
+    # Honour the user's explicit simulation_mode preference.
+    # If they chose Simulation, pass no credentials (forces sim regardless of keys).
+    # If they chose Live, pass the real credentials.
+    want_sim = user_settings.get('simulation_mode', True)
+    api_key      = None if want_sim else raw_api_key
+    api_secret   = None if want_sim else raw_api_secret
+    api_password = None if want_sim else raw_api_password
 
     # Restore actual balance from last recorded performance so compounding
     # continues correctly across restarts instead of resetting to starting_balance.

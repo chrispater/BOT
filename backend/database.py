@@ -76,7 +76,8 @@ def init_db():
             ('is_admin', 'BOOLEAN', 'FALSE'),
             ('account_status', 'VARCHAR(20)', "'pending'"),
             ('can_optimize', 'BOOLEAN', 'FALSE'),
-            ('can_live_trade', 'BOOLEAN', 'FALSE')
+            ('can_live_trade', 'BOOLEAN', 'FALSE'),
+            ('simulation_mode', 'BOOLEAN', 'TRUE'),
         ]
         for col, col_type, default in columns_to_add:
             try:
@@ -213,7 +214,8 @@ def get_user_settings(user_id: int):
             SELECT starting_balance, leverage, selected_coins,
                    risk_per_trade, stop_loss_pct, take_profit_pct,
                    trade_cooldown, min_confidence, timeframe,
-                   trailing_stop_pct, max_drawdown_pct, retrain_every, profit_risk_multiplier
+                   trailing_stop_pct, max_drawdown_pct, retrain_every,
+                   profit_risk_multiplier, simulation_mode
             FROM users WHERE id = %s
         ''', (user_id,))
         row = cur.fetchone()
@@ -232,6 +234,7 @@ def get_user_settings(user_id: int):
                 'max_drawdown_pct': float(row['max_drawdown_pct']) if row.get('max_drawdown_pct') else 0.20,
                 'retrain_every': int(row['retrain_every']) if row.get('retrain_every') else 50,
                 'profit_risk_multiplier': float(row['profit_risk_multiplier']) if row.get('profit_risk_multiplier') else 1.5,
+                'simulation_mode': bool(row['simulation_mode']) if row.get('simulation_mode') is not None else True,
             }
         return {
             'starting_balance': 10000,
@@ -247,6 +250,7 @@ def get_user_settings(user_id: int):
             'max_drawdown_pct': 0.20,
             'retrain_every': 50,
             'profit_risk_multiplier': 1.5,
+            'simulation_mode': True,
         }
 
 def update_user_settings(user_id: int, starting_balance: float = None,
@@ -255,7 +259,8 @@ def update_user_settings(user_id: int, starting_balance: float = None,
                          take_profit_pct: float = None, trade_cooldown: int = None,
                          min_confidence: float = None, timeframe: str = None,
                          trailing_stop_pct: float = None, max_drawdown_pct: float = None,
-                         retrain_every: int = None, profit_risk_multiplier: float = None):
+                         retrain_every: int = None, profit_risk_multiplier: float = None,
+                         simulation_mode: bool = None):
     with get_db() as conn:
         cur = conn.cursor()
         updates = []
@@ -299,6 +304,9 @@ def update_user_settings(user_id: int, starting_balance: float = None,
         if profit_risk_multiplier is not None:
             updates.append("profit_risk_multiplier = %s")
             values.append(profit_risk_multiplier)
+        if simulation_mode is not None:
+            updates.append("simulation_mode = %s")
+            values.append(simulation_mode)
         if updates:
             values.append(user_id)
             cur.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = %s", values)
