@@ -149,6 +149,11 @@ def init_db():
                 completed_at TIMESTAMP
             )
         ''')
+        for col, typ in [('best_roi', 'REAL'), ('best_monthly_roi', 'REAL'), ('best_win_rate', 'REAL')]:
+            try:
+                cur.execute(f'ALTER TABLE optimization_runs ADD COLUMN IF NOT EXISTS {col} {typ}')
+            except Exception:
+                pass
         conn.commit()
 
 def save_trade(user_id: int, symbol: str, side: str, trade_type: str, size: float,
@@ -415,15 +420,16 @@ def get_optimization_job(user_id: int):
             }
         return None
 
-def save_optimization_run(user_id: int, coins: list, days: int, total_tested: int, valid_configs: int, result: str):
+def save_optimization_run(user_id: int, coins: list, days: int, total_tested: int, valid_configs: int, result: str,
+                          best_roi: float = 0, best_monthly_roi: float = 0, best_win_rate: float = 0):
     import json
     with get_db() as conn:
         cur = conn.cursor()
         cur.execute('''
-            INSERT INTO optimization_runs (user_id, status, coins, days_tested, total_tested, valid_configs, result, completed_at)
-            VALUES (%s, 'completed', %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+            INSERT INTO optimization_runs (user_id, status, coins, days_tested, total_tested, valid_configs, result, best_roi, best_monthly_roi, best_win_rate, completed_at)
+            VALUES (%s, 'completed', %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
             RETURNING id
-        ''', (user_id, ','.join(coins), days, total_tested, valid_configs, result))
+        ''', (user_id, ','.join(coins), days, total_tested, valid_configs, result, best_roi, best_monthly_roi, best_win_rate))
         return cur.fetchone()['id']
 
 def get_optimization_runs(user_id: int, limit: int = 10):

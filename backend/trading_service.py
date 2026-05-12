@@ -1,6 +1,7 @@
 import os
 import sys
 import math
+import pickle
 import numpy as np
 import pandas as pd
 import ccxt
@@ -18,6 +19,9 @@ import warnings
 warnings.filterwarnings('ignore')
 
 os.environ['LOKY_MAX_CPU_COUNT'] = '1'
+
+_MODEL_DIR = os.environ.get('BOT_MODEL_DIR', '/tmp/bot_models')
+os.makedirs(_MODEL_DIR, exist_ok=True)
 
 # ── Optional high-performance models (LightGBM > XGBoost > SVM fallback) ──
 try:
@@ -131,6 +135,12 @@ class TradingService:
         self.max_drawdown_pct = max_drawdown_pct
         self.retrain_every = retrain_every
         self.profit_risk_multiplier = profit_risk_multiplier
+
+        self._model_file = os.path.join(_MODEL_DIR, f'model_u{user_id}.pkl')
+        self._buffer_file = os.path.join(_MODEL_DIR, f'buffer_u{user_id}.pkl')
+        self._train_buffer = self._load_train_buffer()
+        self._feedback_buffer = self._load_feedback_buffer()
+        self._load_persisted_model()
 
         # Market regime state (re-evaluated every 10 cycles)
         self.market_regime = 'sideways'     # 'bull' | 'bear' | 'sideways'
@@ -371,6 +381,71 @@ class TradingService:
         available = [c for c in feature_columns if c in df.columns]
         return df[available].copy(), available
 
+    # ── Model persistence & incremental learning ────────────────────────────
+
+    def _load_persisted_model(self):
+        if not os.path.exists(self._model_file):
+            return
+        try:
+            data = pickle.load(open(self._model_file, 'rb'))
+            self.model = data['model']
+            self.scaler = data['scaler']
+            self.imputer = data['imputer']
+            self._model_is_tree = data.get('is_tree', True)
+            logger.info(f"User {self.user_id}: Loaded persisted model from {data.get('trained_at','?')}")
+        except Exception as e:
+            logger.warning(f"User {self.user_id}: Could not load persisted model: {e}")
+
+    def _save_persisted_model(self):
+        try:
+            pickle.dump({
+                'model': self.model, 'scaler': self.scaler, 'imputer': self.imputer,
+                'is_tree': self._model_is_tree, 'trained_at': datetime.now().isoformat(),
+            }, open(self._model_file, 'wb'))
+        except Exception as e:
+            logger.warning(f"User {self.user_id}: Could not save model: {e}")
+
+    def _load_train_buffer(self):
+        if not os.path.exists(self._buffer_file):
+            return []
+        try:
+            return pickle.load(open(self._buffer_file, 'rb'))
+        except Exception:
+            return []
+
+    def _load_feedback_buffer(self):
+        fb_file = self._buffer_file.replace('.pkl', '_fb.pkl')
+        if not os.path.exists(fb_file):
+            return []
+        try:
+            return pickle.load(open(fb_file, 'rb'))
+        except Exception:
+            return []
+
+    def _save_buffers(self):
+        try:
+            pickle.dump(self._train_buffer, open(self._buffer_file, 'wb'))
+            fb_file = self._buffer_file.replace('.pkl', '_fb.pkl')
+            pickle.dump(self._feedback_buffer, open(fb_file, 'wb'))
+        except Exception as e:
+            logger.warning(f"User {self.user_id}: Could not save buffers: {e}")
+
+    def _add_trade_feedback(self, side: str, pnl: float, df_at_entry):
+        """Store entry features from a profitable trade as confirmed training signal."""
+        if pnl <= 0 or df_at_entry is None:
+            return
+        try:
+            X_entry, feat = self.prepare_features(self.calculate_indicators(df_at_entry.copy()))
+            if X_entry.empty:
+                return
+            row = X_entry.iloc[-1].values
+            label = 1 if side == 'long' else -1
+            self._feedback_buffer.append({'X': row, 'y': label, 'features': feat})
+            if len(self._feedback_buffer) > 500:
+                self._feedback_buffer = self._feedback_buffer[-500:]
+        except Exception:
+            pass
+
     # ── Model ───────────────────────────────────────────────────────────────
 
     def _build_model(self):
@@ -390,23 +465,52 @@ class TradingService:
         if len(df) < 50:
             return False
 
-        X, _ = self.prepare_features(df)
-        y = df['signal']
-        mask = y != 0
-        X, y = X[mask], y[mask]
+        X_fresh, feat = self.prepare_features(df)
+        y_fresh = df['signal']
+        mask = y_fresh != 0
+        X_fresh, y_fresh = X_fresh[mask], y_fresh[mask]
 
-        if len(X) < 30:
+        if len(X_fresh) < 30:
             return False
 
-        X_imp = self.imputer.fit_transform(X)
+        # ── Geometric accumulation: merge fresh data with buffered sessions ──
+        X_parts = [X_fresh.values]
+        y_parts = [y_fresh.values]
+        n_feat = X_fresh.shape[1]
+        decay = 0.80
+        for idx, session in enumerate(self._train_buffer[:10]):
+            if session.get('n_feat') != n_feat:
+                continue
+            factor = decay ** (idx + 1)
+            sX, sy = session['X'], session['y']
+            keep = max(1, int(len(sX) * factor))
+            idx_sub = np.random.choice(len(sX), min(keep, len(sX)), replace=False)
+            X_parts.append(sX[idx_sub])
+            y_parts.append(sy[idx_sub])
+
+        # ── Trade feedback: inject confirmed real-outcome samples ──
+        fb_matching = [f for f in self._feedback_buffer if len(f['X']) == n_feat]
+        if fb_matching:
+            X_parts.append(np.array([f['X'] for f in fb_matching]))
+            y_parts.append(np.array([f['y'] for f in fb_matching]))
+            logger.info(f"User {self.user_id}: +{len(fb_matching)} feedback samples from real trades")
+
+        X_all = np.vstack(X_parts)
+        y_all = np.concatenate(y_parts)
+
+        if len(X_parts) > 1:
+            logger.info(f"User {self.user_id}: Geometric training — {len(X_fresh)} fresh + {len(X_all)-len(X_fresh)} buffered = {len(X_all)} total")
+
+        X_imp = self.imputer.fit_transform(X_all)
         X_sc = self.scaler.fit_transform(X_imp)
 
+        y_ser = pd.Series(y_all)
         try:
             smote = SMOTE(random_state=42,
-                          k_neighbors=min(3, len(y[y == 1]) - 1, len(y[y == -1]) - 1))
-            X_res, y_res = smote.fit_resample(X_sc, y)
+                          k_neighbors=min(3, int((y_ser == 1).sum()) - 1, int((y_ser == -1).sum()) - 1))
+            X_res, y_res = smote.fit_resample(X_sc, y_ser)
         except Exception:
-            X_res, y_res = X_sc, y
+            X_res, y_res = X_sc, y_ser
 
         is_tree = LGBM_AVAILABLE or XGB_AVAILABLE
         model = self._build_model()
@@ -422,11 +526,17 @@ class TradingService:
         self.model = model
         self._model_is_tree = is_tree
 
-        X_check = self.scaler.transform(self.imputer.transform(X))
+        X_check = self.scaler.transform(self.imputer.transform(X_fresh.values))
         raw_pred = model.predict(X_check)
         y_pred = _decode_y(raw_pred) if is_tree else raw_pred
-        accuracy = accuracy_score(y, y_pred)
+        accuracy = accuracy_score(y_fresh, y_pred)
         logger.info(f"User {self.user_id}: Model trained — Accuracy: {accuracy:.2%}")
+
+        # Save this session to buffer (prepend = newest first) and persist
+        self._train_buffer.insert(0, {'X': X_fresh.values, 'y': y_fresh.values, 'n_feat': n_feat})
+        self._train_buffer = self._train_buffer[:10]
+        self._save_buffers()
+        self._save_persisted_model()
         return True
 
     def predict_signal(self, df):
@@ -736,6 +846,9 @@ class TradingService:
                     self.winning_trades += 1
                 self.balance += pnl
 
+                if pnl > 0:
+                    self._add_trade_feedback(position['side'], pnl, df)
+
                 margin_used = position.get('margin', 1)
                 lev_pct = (pnl / margin_used * 100) if margin_used > 0 else 0
 
@@ -856,6 +969,9 @@ class TradingService:
                     if pnl > 0:
                         self.winning_trades += 1
                     self.balance += pnl
+
+                    if pnl > 0:
+                        self._add_trade_feedback(position['side'], pnl, df)
 
                     margin_used = position.get('margin', 1)
                     lev_pct = (pnl / margin_used * 100) if margin_used > 0 else 0
