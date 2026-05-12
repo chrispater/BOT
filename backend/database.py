@@ -437,7 +437,9 @@ def get_optimization_runs(user_id: int, limit: int = 10):
     with get_db() as conn:
         cur = conn.cursor()
         cur.execute('''
-            SELECT id, coins, days_tested, total_tested, valid_configs, started_at, completed_at
+            SELECT id, coins, days_tested, total_tested, valid_configs,
+                   best_roi, best_monthly_roi, best_win_rate,
+                   started_at, completed_at
             FROM optimization_runs WHERE user_id = %s
             ORDER BY completed_at DESC LIMIT %s
         ''', (user_id, limit))
@@ -448,7 +450,9 @@ def get_optimization_run(run_id: int, user_id: int):
     with get_db() as conn:
         cur = conn.cursor()
         cur.execute('''
-            SELECT id, coins, days_tested, total_tested, valid_configs, result, started_at, completed_at
+            SELECT id, coins, days_tested, total_tested, valid_configs, result,
+                   best_roi, best_monthly_roi, best_win_rate,
+                   started_at, completed_at
             FROM optimization_runs WHERE id = %s AND user_id = %s
         ''', (run_id, user_id))
         row = cur.fetchone()
@@ -466,6 +470,9 @@ def get_optimization_run(run_id: int, user_id: int):
                 'total_tested': row['total_tested'],
                 'valid_configs': row['valid_configs'],
                 'result': result_data,
+                'best_roi': row['best_roi'],
+                'best_monthly_roi': row['best_monthly_roi'],
+                'best_win_rate': row['best_win_rate'],
                 'started_at': row['started_at'].isoformat() if row['started_at'] else None,
                 'completed_at': row['completed_at'].isoformat() if row['completed_at'] else None
             }
@@ -476,7 +483,9 @@ def get_latest_optimization_run(user_id: int):
     with get_db() as conn:
         cur = conn.cursor()
         cur.execute('''
-            SELECT id, coins, days_tested, total_tested, valid_configs, result, started_at, completed_at
+            SELECT id, coins, days_tested, total_tested, valid_configs, result,
+                   best_roi, best_monthly_roi, best_win_rate,
+                   started_at, completed_at
             FROM optimization_runs WHERE user_id = %s
             ORDER BY completed_at DESC LIMIT 1
         ''', (user_id,))
@@ -495,6 +504,9 @@ def get_latest_optimization_run(user_id: int):
                 'total_tested': row['total_tested'],
                 'valid_configs': row['valid_configs'],
                 'result': result_data,
+                'best_roi': row['best_roi'],
+                'best_monthly_roi': row['best_monthly_roi'],
+                'best_win_rate': row['best_win_rate'],
                 'started_at': row['started_at'].isoformat() if row['started_at'] else None,
                 'completed_at': row['completed_at'].isoformat() if row['completed_at'] else None
             }

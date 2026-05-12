@@ -548,13 +548,17 @@ def run_optimization_thread(user_id: int, selected_coins: list, starting_balance
         print(f"[OPTIMIZE] User {user_id}: Optimize() complete", flush=True)
         result_json = json.dumps(result)
         update_optimization_job(user_id, status='completed', progress=100, result=result_json)
+        best = result.get('top_configs', [{}])[0] if result.get('top_configs') else {}
         save_optimization_run(
             user_id=user_id,
             coins=selected_coins,
             days=60,
             total_tested=result.get('total_tested', 0),
             valid_configs=result.get('valid_configs', 0),
-            result=result_json
+            result=result_json,
+            best_roi=best.get('roi', best.get('total_return', 0)),
+            best_monthly_roi=best.get('monthly_roi', 0),
+            best_win_rate=best.get('win_rate', 0),
         )
         time.sleep(0.5)
         print(f"[OPTIMIZE] User {user_id}: Saved to database and history", flush=True)
@@ -694,6 +698,9 @@ async def get_optimization_history(user = Depends(get_current_user)):
             "days_tested": r['days_tested'],
             "total_tested": r['total_tested'],
             "valid_configs": r['valid_configs'],
+            "best_roi": r['best_roi'],
+            "best_monthly_roi": r['best_monthly_roi'],
+            "best_win_rate": r['best_win_rate'],
             "completed_at": r['completed_at'].isoformat() if r['completed_at'] else None
         } for r in runs]
     }

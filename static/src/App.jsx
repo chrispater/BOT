@@ -806,9 +806,12 @@ function OptimizePage({ api, setError, setSuccess }) {
   const [optimizeError, setOptimizeError] = useState('')
   const [selectedConfig, setSelectedConfig] = useState(null)
   const [applyLoading, setApplyLoading] = useState(false)
+  const [history, setHistory] = useState([])
+  const [loadedRunId, setLoadedRunId] = useState(null)
   const pollIntervalRef = useRef(null)
 
   useEffect(() => {
+    api.get('/optimize/history').then(r => setHistory(r.data.runs || [])).catch(() => {})
     return () => { if (pollIntervalRef.current) clearInterval(pollIntervalRef.current) }
   }, [])
 
@@ -817,10 +820,12 @@ function OptimizePage({ api, setError, setSuccess }) {
       const res = await api.get('/optimize/status')
       if (res.data.status === 'completed') {
         setOptimizeResults(res.data.result)
+        setLoadedRunId(null)
         setOptimizeLoading(false)
         setOptimizeStatus('')
         clearInterval(pollIntervalRef.current)
         pollIntervalRef.current = null
+        api.get('/optimize/history').then(r => setHistory(r.data.runs || [])).catch(() => {})
         return true
       } else if (res.data.status === 'failed') {
         setOptimizeError(res.data.error || 'Optimization failed')
@@ -834,6 +839,17 @@ function OptimizePage({ api, setError, setSuccess }) {
         return false
       }
     } catch (e) { return false }
+  }
+
+  const loadHistoricalRun = async (runId) => {
+    try {
+      const r = await api.get('/optimize/run/' + runId)
+      setOptimizeResults(r.data.result)
+      setLoadedRunId(runId)
+      setSelectedConfig(null)
+    } catch (e) {
+      setError('Failed to load historical run')
+    }
   }
 
   const runOptimization = async () => {
@@ -989,6 +1005,65 @@ function OptimizePage({ api, setError, setSuccess }) {
           )}
         </div>
       )}
+
+      <div className="card">
+        <h2 className="card-title">Previous Runs</h2>
+        {history.length === 0 ? (
+          <p style={{ color: '#8b95a5', fontSize: 14 }}>No previous runs yet.</p>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+                  <th style={{ textAlign: 'left', padding: '6px 8px', color: '#8b95a5', fontWeight: 600 }}>Date</th>
+                  <th style={{ textAlign: 'left', padding: '6px 8px', color: '#8b95a5', fontWeight: 600 }}>Coins</th>
+                  <th style={{ textAlign: 'right', padding: '6px 8px', color: '#8b95a5', fontWeight: 600 }}>Best ROI</th>
+                  <th style={{ textAlign: 'right', padding: '6px 8px', color: '#8b95a5', fontWeight: 600 }}>Win Rate</th>
+                  <th style={{ textAlign: 'right', padding: '6px 8px', color: '#8b95a5', fontWeight: 600 }}>Configs</th>
+                  <th style={{ padding: '6px 8px' }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {history.map(run => {
+                  const isLoaded = loadedRunId === run.id
+                  return (
+                    <tr key={run.id} style={{
+                      borderBottom: '1px solid rgba(255,255,255,0.05)',
+                      background: isLoaded ? 'rgba(0,212,170,0.06)' : 'transparent',
+                    }}>
+                      <td style={{ padding: '8px 8px', color: '#e8eaf0' }}>
+                        {run.completed_at ? new Date(run.completed_at).toLocaleDateString() : '—'}
+                      </td>
+                      <td style={{ padding: '8px 8px', color: '#e8eaf0' }}>
+                        {(run.coins || []).map(c => c.split('/')[0]).join(', ') || '—'}
+                      </td>
+                      <td style={{ padding: '8px 8px', textAlign: 'right', color: run.best_roi > 0 ? '#00d4aa' : '#ff4444', fontWeight: 600 }}>
+                        {run.best_roi != null ? `${run.best_roi >= 0 ? '+' : ''}${Number(run.best_roi).toFixed(1)}%` : '—'}
+                      </td>
+                      <td style={{ padding: '8px 8px', textAlign: 'right', color: '#e8eaf0' }}>
+                        {run.best_win_rate != null ? `${Number(run.best_win_rate).toFixed(1)}%` : '—'}
+                      </td>
+                      <td style={{ padding: '8px 8px', textAlign: 'right', color: '#8b95a5' }}>
+                        {run.valid_configs}/{run.total_tested}
+                      </td>
+                      <td style={{ padding: '8px 8px', textAlign: 'right' }}>
+                        <button
+                          className="btn btn-secondary"
+                          style={{ padding: '4px 12px', fontSize: 12, width: 'auto', opacity: isLoaded ? 0.5 : 1 }}
+                          onClick={() => loadHistoricalRun(run.id)}
+                          disabled={isLoaded}
+                        >
+                          {isLoaded ? 'Loaded' : 'Load'}
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       <div className="card">
         <h2 className="card-title">How It Works</h2>
