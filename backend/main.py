@@ -9,8 +9,20 @@ from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 from typing import Optional, Dict, List
 import json
+import numpy as np
 from datetime import datetime
 from pathlib import Path
+
+class _NumpyEncoder(json.JSONEncoder):
+    """Make numpy scalar types JSON-serializable."""
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super().default(obj)
 
 from .database import (
     init_db, get_db, save_trade, save_signal, save_performance,
@@ -546,19 +558,19 @@ def run_optimization_thread(user_id: int, selected_coins: list, starting_balance
         print(f"[OPTIMIZE] User {user_id}: Starting optimize()", flush=True)
         result = optimizer.optimize(days=60, progress_callback=progress_callback)
         print(f"[OPTIMIZE] User {user_id}: Optimize() complete", flush=True)
-        result_json = json.dumps(result)
+        result_json = json.dumps(result, cls=_NumpyEncoder)
         update_optimization_job(user_id, status='completed', progress=100, result=result_json)
         best = result.get('top_configs', [{}])[0] if result.get('top_configs') else {}
         save_optimization_run(
             user_id=user_id,
             coins=selected_coins,
             days=60,
-            total_tested=result.get('total_tested', 0),
-            valid_configs=result.get('valid_configs', 0),
+            total_tested=int(result.get('total_tested', 0)),
+            valid_configs=int(result.get('valid_configs', 0)),
             result=result_json,
-            best_roi=best.get('roi', best.get('total_return', 0)),
-            best_monthly_roi=best.get('monthly_roi', 0),
-            best_win_rate=best.get('win_rate', 0),
+            best_roi=float(best.get('roi', best.get('total_return', 0)) or 0),
+            best_monthly_roi=float(best.get('monthly_roi', 0) or 0),
+            best_win_rate=float(best.get('win_rate', 0) or 0),
         )
         time.sleep(0.5)
         print(f"[OPTIMIZE] User {user_id}: Saved to database and history", flush=True)
