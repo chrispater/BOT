@@ -572,6 +572,7 @@ class TradingService:
 
     def predict_signal(self, df):
         if self.model is None:
+            logger.warning(f"User {self.user_id}: Model not trained yet — returning FLAT signal. Bot will train on next cycle.")
             return 0, 0.5
         df = self.calculate_indicators(df.copy())
         X, _ = self.prepare_features(df)
@@ -904,17 +905,22 @@ class TradingService:
     def execute_live_trade(self, signal, price, confidence, symbol=None, df=None):
         symbol = symbol or self.get_current_symbol()
         current_time = time.time()
-        if current_time - self.last_trade_times.get(symbol, 0) < self.trade_cooldown:
+        cooldown_remaining = self.trade_cooldown - (current_time - self.last_trade_times.get(symbol, 0))
+        if cooldown_remaining > 0:
+            logger.debug(f"User {self.user_id}: [{symbol}] Entry blocked — cooldown {cooldown_remaining:.0f}s remaining")
             return
 
         try:
             position = self.positions.get(symbol)
+            sig_label = 'LONG' if signal == 1 else ('SHORT' if signal == -1 else 'FLAT')
+            logger.info(f"User {self.user_id}: [{symbol}] Cycle — signal={sig_label} conf={confidence:.1%} threshold={self.min_confidence:.1%} position={'open' if position else 'none'}")
 
             if position is None and signal != 0 and confidence >= self.min_confidence:
                 if self._is_drawdown_exceeded():
+                    logger.warning(f"User {self.user_id}: [{symbol}] Entry blocked — max drawdown limit reached")
                     return
                 if not self._entry_filter(signal, df):
-                    return
+                    return  # _entry_filter already logs the reason
 
                 try:
                     acct = self.exchange.fetch_balance()
@@ -1036,8 +1042,13 @@ class TradingService:
                     self.last_trade_times[symbol] = current_time
                     self._sync_live_balance()
 
+            elif position is None and signal == 0:
+                logger.debug(f"User {self.user_id}: [{symbol}] No trade — model output FLAT (signal=0)")
+            elif position is None and signal != 0 and confidence < self.min_confidence:
+                logger.info(f"User {self.user_id}: [{symbol}] No trade — conf {confidence:.1%} below threshold {self.min_confidence:.1%}")
+
         except Exception as e:
-            logger.error(f"User {self.user_id}: Live trade execution failed: {e}")
+            logger.error(f"User {self.user_id}: Live trade execution FAILED: {type(e).__name__}: {e}", exc_info=True)
 
     # ── Backtest ─────────────────────────────────────────────────────────────
 
