@@ -118,9 +118,9 @@ async def startup():
     try:
         import urllib.request
         outbound_ip = urllib.request.urlopen('https://api.ipify.org', timeout=5).read().decode()
-        print(f"[STARTUP] Outbound IP: {outbound_ip} — whitelist this on Blofin if using IP restriction", flush=True)
-    except Exception:
-        pass
+        print(f"[STARTUP] Outbound IP: {outbound_ip}", flush=True)
+    except Exception as e:
+        print(f"[STARTUP] Could not detect outbound IP: {e}", flush=True)
 
 @app.get("/api/health")
 async def health():
@@ -304,12 +304,27 @@ async def start_bot(user = Depends(get_current_user)):
     user_settings = get_user_settings(user_id)
 
     # Honour the user's explicit simulation_mode preference.
-    # If they chose Simulation, pass no credentials (forces sim regardless of keys).
-    # If they chose Live, pass the real credentials.
     want_sim = user_settings.get('simulation_mode', True)
     api_key      = None if want_sim else raw_api_key
     api_secret   = None if want_sim else raw_api_secret
     api_password = None if want_sim else raw_api_password
+
+    # Quick connectivity check before starting — surfaces IP whitelist blocks immediately
+    if not want_sim and api_key:
+        try:
+            import ccxt, urllib.request
+            _ex = ccxt.blofin({'apiKey': api_key, 'secret': api_secret, 'password': api_password})
+            _ex.fetch_balance()
+            print(f"[START_BOT] Blofin API connection OK for user {user_id}", flush=True)
+        except Exception as _e:
+            try:
+                _ip = urllib.request.urlopen('https://api.ipify.org', timeout=3).read().decode()
+            except Exception:
+                _ip = 'unknown'
+            err_msg = str(_e)
+            print(f"[START_BOT] Blofin API FAILED for user {user_id}: {err_msg} | Current IP: {_ip}", flush=True)
+            if any(x in err_msg.lower() for x in ['ip', 'whitelist', 'forbidden', '403', 'auth', 'sign']):
+                raise HTTPException(status_code=400, detail=f"Blofin API blocked — add this IP to your whitelist: {_ip}")
 
     # Restore actual balance from last recorded performance so compounding
     # continues correctly across restarts instead of resetting to starting_balance.
