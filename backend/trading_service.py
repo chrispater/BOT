@@ -871,7 +871,7 @@ class TradingService:
                 del self.positions[symbol]
                 self.last_trade_times[symbol] = current_time
 
-    def execute_live_trade(self, signal, price, confidence, symbol=None, df=None, allow_entry=True):
+    def execute_live_trade(self, signal, price, confidence, symbol=None, df=None):
         symbol = symbol or self.get_current_symbol()
         current_time = time.time()
         if current_time - self.last_trade_times.get(symbol, 0) < self.trade_cooldown:
@@ -880,7 +880,7 @@ class TradingService:
         try:
             position = self.positions.get(symbol)
 
-            if position is None and allow_entry and signal != 0 and confidence >= self.min_confidence:
+            if position is None and signal != 0 and confidence >= self.min_confidence:
                 if self._is_drawdown_exceeded():
                     return
                 if not self._entry_filter(signal, df):
@@ -1324,9 +1324,7 @@ class TradingService:
             if self.simulation_mode:
                 self.simulate_trade(signal, price, confidence, symbol=symbol, df=df_ind)
             else:
-                # Live: always check exits, but only enter on a fresh candle close
-                self.execute_live_trade(signal, price, confidence, symbol=symbol, df=df_ind,
-                                        allow_entry=new_candle)
+                self.execute_live_trade(signal, price, confidence, symbol=symbol, df=df_ind)
 
             results.append(signal_data)
 
