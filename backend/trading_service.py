@@ -141,7 +141,8 @@ class TradingService:
         self._train_buffer = self._load_train_buffer()
         self._feedback_buffer = self._load_feedback_buffer()
         self._load_persisted_model()
-        self._last_candle_ts: dict = {}  # symbol → last candle open timestamp
+        self._last_candle_ts: dict = {}   # symbol → last candle open timestamp
+        self._ohlcv_cache:    dict = {}   # symbol → full DataFrame (1000 rows), refreshed incrementally
 
         # Market regime state (re-evaluated every 10 cycles)
         self.market_regime = 'sideways'     # 'bull' | 'bear' | 'sideways'
@@ -193,6 +194,35 @@ class TradingService:
             return df
         except Exception:
             return self._generate_simulated_data(limit)
+
+    def fetch_ohlcv_fast(self, symbol=None):
+        """
+        Incremental OHLCV fetch: downloads 1000 candles once, then only fetches
+        the last 5 candles on subsequent calls and merges them into the cache.
+        ~200x less data per cycle than a full fetch — critical for low-latency live trading.
+        """
+        symbol = symbol or self.get_current_symbol()
+        cached = self._ohlcv_cache.get(symbol)
+
+        if cached is None or len(cached) < 200:
+            # Cold start: full history needed for indicator calculation
+            df = self.fetch_ohlcv(symbol=symbol, limit=LOOKBACK_PERIODS)
+            if df is not None and len(df) > 0:
+                self._ohlcv_cache[symbol] = df
+            return df
+
+        # Hot path: only fetch the last few candles and append
+        try:
+            raw = self.exchange.fetch_ohlcv(symbol, self.timeframe, limit=5)
+            new_df = pd.DataFrame(raw, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            new_df['timestamp'] = pd.to_datetime(new_df['timestamp'], unit='ms')
+            new_df.set_index('timestamp', inplace=True)
+            combined = pd.concat([cached, new_df])
+            combined = combined[~combined.index.duplicated(keep='last')].sort_index().tail(LOOKBACK_PERIODS)
+            self._ohlcv_cache[symbol] = combined
+            return combined
+        except Exception:
+            return cached  # Network blip — use stale cache rather than crash
 
     def _get_timeframe_minutes(self):
         return {'1m': 1, '3m': 3, '5m': 5, '15m': 15, '30m': 30,
@@ -946,6 +976,16 @@ class TradingService:
                 )
 
             elif position is not None:
+                # Use real-time ticker price for exit decisions — much faster than
+                # waiting for a full OHLCV candle to update
+                try:
+                    ticker = self.exchange.fetch_ticker(symbol)
+                    live_price = float(ticker.get('last') or ticker.get('close') or price)
+                    if live_price > 0:
+                        price = live_price
+                except Exception:
+                    pass  # fall back to OHLCV close price
+
                 if position['side'] == 'long':
                     position['high_water_mark'] = max(position['high_water_mark'], price)
                 else:
@@ -1275,7 +1315,7 @@ class TradingService:
 
         results = []
         for symbol in self.selected_coins:
-            df = self.fetch_ohlcv(symbol=symbol)
+            df = self.fetch_ohlcv_fast(symbol=symbol)
             if df is None or len(df) < 50:
                 continue
 
