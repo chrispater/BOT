@@ -115,6 +115,12 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
 @app.on_event("startup")
 async def startup():
     init_db()
+    try:
+        import urllib.request
+        outbound_ip = urllib.request.urlopen('https://api.ipify.org', timeout=5).read().decode()
+        print(f"[STARTUP] Outbound IP: {outbound_ip} — whitelist this on Blofin if using IP restriction", flush=True)
+    except Exception:
+        pass
 
 @app.get("/api/health")
 async def health():
