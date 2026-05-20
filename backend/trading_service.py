@@ -141,6 +141,7 @@ class TradingService:
         self._train_buffer = self._load_train_buffer()
         self._feedback_buffer = self._load_feedback_buffer()
         self._load_persisted_model()
+        self._last_candle_ts: dict = {}  # symbol → last candle open timestamp
 
         # Market regime state (re-evaluated every 10 cycles)
         self.market_regime = 'sideways'     # 'bull' | 'bear' | 'sideways'
@@ -870,7 +871,7 @@ class TradingService:
                 del self.positions[symbol]
                 self.last_trade_times[symbol] = current_time
 
-    def execute_live_trade(self, signal, price, confidence, symbol=None, df=None):
+    def execute_live_trade(self, signal, price, confidence, symbol=None, df=None, allow_entry=True):
         symbol = symbol or self.get_current_symbol()
         current_time = time.time()
         if current_time - self.last_trade_times.get(symbol, 0) < self.trade_cooldown:
@@ -879,7 +880,7 @@ class TradingService:
         try:
             position = self.positions.get(symbol)
 
-            if position is None and signal != 0 and confidence >= self.min_confidence:
+            if position is None and allow_entry and signal != 0 and confidence >= self.min_confidence:
                 if self._is_drawdown_exceeded():
                     return
                 if not self._entry_filter(signal, df):
@@ -1278,8 +1279,13 @@ class TradingService:
             if df is None or len(df) < 50:
                 continue
 
-            # Periodic model retraining keeps the model adapted to current regime
-            should_train = self.model is None or (self._cycle_count % self.retrain_every == 0)
+            # Detect whether the latest candle is new (used to gate entries in live mode)
+            latest_ts = df.index[-1] if hasattr(df.index, '__len__') else None
+            new_candle = (latest_ts != self._last_candle_ts.get(symbol))
+            self._last_candle_ts[symbol] = latest_ts
+
+            # Only retrain on a new candle (avoids redundant training on intra-candle cycles)
+            should_train = new_candle and (self.model is None or (self._cycle_count % self.retrain_every == 0))
             if should_train:
                 logger.info(
                     f"User {self.user_id}: {'Initial' if self.model is None else 'Periodic'} "
@@ -1318,7 +1324,9 @@ class TradingService:
             if self.simulation_mode:
                 self.simulate_trade(signal, price, confidence, symbol=symbol, df=df_ind)
             else:
-                self.execute_live_trade(signal, price, confidence, symbol=symbol, df=df_ind)
+                # Live: always check exits, but only enter on a fresh candle close
+                self.execute_live_trade(signal, price, confidence, symbol=symbol, df=df_ind,
+                                        allow_entry=new_candle)
 
             results.append(signal_data)
 

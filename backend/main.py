@@ -822,11 +822,15 @@ async def run_bot_loop(user_id: int):
         except Exception as e:
             print(f"Bot loop error for user {user_id}: {e}")
 
-        # FIX: align sleep with the bot's actual timeframe instead of hardcoded 30s.
-        # On a 1h chart, sleeping 30s means 120 wasted API calls per candle.
-        # Sleeping 85% of the candle duration fires just before each close.
-        tf = user_bots[user_id].timeframe if user_id in user_bots else '5m'
-        await asyncio.sleep(_bot_sleep_seconds(tf))
+        bot = user_bots.get(user_id)
+        tf = bot.timeframe if bot else '5m'
+        if bot and not bot.simulation_mode:
+            # Live mode: check every 30s so exits (SL/TP) react quickly.
+            # Entries are still gated to new candle closes inside run_cycle.
+            await asyncio.sleep(30)
+        else:
+            # Sim mode: align to candle duration (no urgency for real exits).
+            await asyncio.sleep(_bot_sleep_seconds(tf))
 
     if user_id in user_bots:
         del user_bots[user_id]
