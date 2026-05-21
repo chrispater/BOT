@@ -374,10 +374,12 @@ async def start_bot(user = Depends(get_current_user)):
     )
     bot.running = True
     # Restore balance from DB — preserves compound growth across restarts.
-    # Also update starting_balance so the profit-tier and drawdown baseline
-    # track from the actual current balance, not a stale configured value.
+    # Also update starting_balance so the profit-tier tracks from actual current balance.
     bot.balance = restored_balance
     bot.starting_balance = restored_balance
+    # Set drawdown baseline to restored balance so drawdown is measured from NOW,
+    # not from a stale configured starting_balance (prevents false 97% drawdown block).
+    bot._drawdown_baseline = restored_balance
     user_bots[user_id] = bot
 
     asyncio.create_task(run_bot_loop(user_id))
@@ -863,10 +865,14 @@ async def admin_update_permissions(target_user_id: int, perms_update: Permission
     return {"status": "updated", "user_id": target_user_id}
 
 async def run_bot_loop(user_id: int):
+    consecutive_errors = 0
+    MAX_CONSECUTIVE_ERRORS = 10
+
     while user_id in user_bots and user_bots[user_id].running:
         try:
             bot = user_bots[user_id]
             signal_data = bot.run_cycle()
+            consecutive_errors = 0  # reset on success
 
             if signal_data and user_id in user_connections:
                 status = bot.get_status()
@@ -881,16 +887,22 @@ async def run_bot_loop(user_id: int):
                         pass
 
         except Exception as e:
-            print(f"Bot loop error for user {user_id}: {e}")
+            consecutive_errors += 1
+            print(f"Bot loop error for user {user_id} (#{consecutive_errors}): {e}")
+            if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
+                # Circuit breaker: exchange likely down or API revoked — back off 5 min
+                print(f"[BOT] User {user_id}: {MAX_CONSECUTIVE_ERRORS} consecutive errors — pausing 5 min")
+                await asyncio.sleep(300)
+                consecutive_errors = 0
+                continue
 
         bot = user_bots.get(user_id)
         tf = bot.timeframe if bot else '5m'
         if bot and not bot.simulation_mode:
             # Live mode: check every 30s so exits (SL/TP) react quickly.
-            # Entries are still gated to new candle closes inside run_cycle.
             await asyncio.sleep(30)
         else:
-            # Sim mode: align to candle duration (no urgency for real exits).
+            # Sim mode: align to candle duration.
             await asyncio.sleep(_bot_sleep_seconds(tf))
 
     if user_id in user_bots:

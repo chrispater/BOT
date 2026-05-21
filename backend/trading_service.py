@@ -145,7 +145,7 @@ class TradingService:
         self._ohlcv_cache:    dict = {}   # symbol → full DataFrame (1000 rows), refreshed incrementally
         self._drawdown_baseline: float = None  # real exchange balance at first sync — used for drawdown, not starting_balance which may be inflated for sizing
         self._start_time: float = time.time()  # session start epoch — used for velocity metrics
-        self._trade_roi_history: list = []  # per-trade ROI as fraction of balance before that trade — drives compound projection
+        self._trade_roi_history: list = self._load_roi_history()  # persisted across restarts
         self._last_dynamic_leverage: int = leverage  # effective leverage used on last trade — set by _dynamic_leverage()
 
         # Market regime state (re-evaluated every 10 cycles)
@@ -457,11 +457,23 @@ class TradingService:
         except Exception:
             return []
 
+    def _load_roi_history(self) -> list:
+        roi_file = self._buffer_file.replace('.pkl', '_roi.pkl')
+        try:
+            if os.path.exists(roi_file):
+                data = pickle.load(open(roi_file, 'rb'))
+                return data if isinstance(data, list) else []
+        except Exception:
+            pass
+        return []
+
     def _save_buffers(self):
         try:
             pickle.dump(self._train_buffer, open(self._buffer_file, 'wb'))
             fb_file = self._buffer_file.replace('.pkl', '_fb.pkl')
             pickle.dump(self._feedback_buffer, open(fb_file, 'wb'))
+            roi_file = self._buffer_file.replace('.pkl', '_roi.pkl')
+            pickle.dump(self._trade_roi_history, open(roi_file, 'wb'))
         except Exception as e:
             logger.warning(f"User {self.user_id}: Could not save buffers: {e}")
 
@@ -512,7 +524,7 @@ class TradingService:
         X_parts = [X_fresh.values]
         y_parts = [y_fresh.values]
         n_feat = X_fresh.shape[1]
-        decay = 0.80
+        decay = 0.90   # slower decay preserves cyclical crypto patterns across sessions
         for idx, session in enumerate(self._train_buffer[:10]):
             if session.get('n_feat') != n_feat:
                 continue
@@ -695,12 +707,16 @@ class TradingService:
             conf_scale = max(0.5, min(1.5, conf_scale))
             margin = margin * conf_scale
 
-        capped = min(margin, self.balance * 0.10)
+        # Cap respects the user's configured risk setting rather than a hardcoded 10%.
+        # Ceiling = risk_per_trade × 2.0 (headroom for profit-tier + confidence boost),
+        # with a 10% floor so conservative settings still have room and a 75% hard ceiling.
+        risk_ceiling = min(max(self.risk_per_trade * 2.0, 0.10), 0.75)
+        capped = min(margin, self.balance * risk_ceiling)
         conf_str = f"{confidence:.2f}" if confidence is not None else "n/a"
         logger.info(
             f"User {self.user_id}: [MARGIN] base=${base_cap:.2f} k={k*100:.1f}% | "
             f"profit_tier=${profit:.2f}×{self.profit_risk_multiplier} | "
-            f"conf={conf_str} scale={conf_scale:.2f} → ${capped:.2f}"
+            f"conf={conf_str} scale={conf_scale:.2f} risk_ceil={risk_ceiling*100:.0f}% → ${capped:.2f}"
         )
         return max(1.0, capped)
 
@@ -716,9 +732,10 @@ class TradingService:
 
     def _entry_filter(self, signal: int, df) -> bool:
         """
-        Pre-entry quality gate. Requires:
-          • ADX ≥ 12  — some directional momentum (loose to allow ranging markets)
-          • volume_ratio ≥ 0.40 — minimum participation threshold
+        Pre-entry quality gate — thresholds match the backtest filter exactly so
+        optimizer results translate 1:1 to live performance.
+          • ADX ≥ 18  — meaningful directional momentum (matches backtest)
+          • volume_ratio ≥ 0.65 — solid participation (matches backtest)
         Returns True = entry allowed.
         """
         if df is None or len(df) < 5:
@@ -728,11 +745,11 @@ class TradingService:
         vol_raw = latest.get('volume_ratio', 1.0)
         adx = 25.0 if pd.isna(adx_raw) else float(adx_raw)
         vol = 1.0  if pd.isna(vol_raw) else float(vol_raw)
-        if adx < 12:
-            logger.debug(f"User {self.user_id}: Entry blocked — ADX {adx:.1f} < 12 (low trend strength)")
+        if adx < 18:
+            logger.debug(f"User {self.user_id}: Entry blocked — ADX {adx:.1f} < 18 (weak trend)")
             return False
-        if vol < 0.40:
-            logger.debug(f"User {self.user_id}: Entry blocked — volume_ratio {vol:.2f} < 0.40 (thin volume)")
+        if vol < 0.65:
+            logger.debug(f"User {self.user_id}: Entry blocked — volume_ratio {vol:.2f} < 0.65 (thin volume)")
             return False
         return True
 
@@ -794,12 +811,13 @@ class TradingService:
     # ── Status ──────────────────────────────────────────────────────────────
 
     def _record_trade_roi(self, pnl: float):
-        """Record per-trade ROI as fraction of balance BEFORE this trade closes."""
+        """Record per-trade ROI as fraction of balance BEFORE this trade closes, then persist."""
         if self.balance > 0:
             roi = pnl / self.balance
             self._trade_roi_history.append(roi)
             if len(self._trade_roi_history) > 200:
                 self._trade_roi_history = self._trade_roi_history[-200:]
+            self._save_buffers()   # persist so compound projection survives restarts
 
     def _compound_projection(self):
         """
