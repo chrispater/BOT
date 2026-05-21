@@ -213,10 +213,6 @@ function CompoundTracker({ compound, balance, dynLeverage, maxLeverage }) {
     { label: '$1M',   trades: compound?.trades_to_1m,   days: compound?.days_to_1m,   target: 1_000_000 },
   ]
 
-  const progress1m = compound?.trades_to_1m
-    ? Math.min(100, Math.max(0, (1 - compound.trades_to_1m / (compound.trades_to_1m + (compound?.sample_size || 1))) * 100))
-    : 0
-
   const fmtDays = (d) => {
     if (d == null) return '—'
     if (d < 1) return '<1 day'

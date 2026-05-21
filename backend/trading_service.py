@@ -147,6 +147,7 @@ class TradingService:
         self._start_time: float = time.time()  # session start epoch — used for velocity metrics
         self._trade_roi_history: list = self._load_roi_history()  # persisted across restarts
         self._last_dynamic_leverage: int = leverage  # effective leverage used on last trade — set by _dynamic_leverage()
+        self._trades_since_roi_save: int = 0
 
         # Market regime state (re-evaluated every 10 cycles)
         self.market_regime = 'sideways'     # 'bull' | 'bear' | 'sideways'
@@ -461,7 +462,8 @@ class TradingService:
         roi_file = self._buffer_file.replace('.pkl', '_roi.pkl')
         try:
             if os.path.exists(roi_file):
-                data = pickle.load(open(roi_file, 'rb'))
+                with open(roi_file, 'rb') as f:
+                    data = pickle.load(f)
                 return data if isinstance(data, list) else []
         except Exception:
             pass
@@ -469,11 +471,14 @@ class TradingService:
 
     def _save_buffers(self):
         try:
-            pickle.dump(self._train_buffer, open(self._buffer_file, 'wb'))
+            with open(self._buffer_file, 'wb') as f:
+                pickle.dump(self._train_buffer, f)
             fb_file = self._buffer_file.replace('.pkl', '_fb.pkl')
-            pickle.dump(self._feedback_buffer, open(fb_file, 'wb'))
+            with open(fb_file, 'wb') as f:
+                pickle.dump(self._feedback_buffer, f)
             roi_file = self._buffer_file.replace('.pkl', '_roi.pkl')
-            pickle.dump(self._trade_roi_history, open(roi_file, 'wb'))
+            with open(roi_file, 'wb') as f:
+                pickle.dump(self._trade_roi_history, f)
         except Exception as e:
             logger.warning(f"User {self.user_id}: Could not save buffers: {e}")
 
@@ -694,7 +699,7 @@ class TradingService:
           • Profits above starting_balance risk at Kelly% × profit_risk_multiplier.
           • Confidence multiplier: 0.5x at min_confidence threshold → 1.5x at 90%+ confidence.
             No-brainer setups get 50% more margin; borderline trades get 50% less.
-        Hard cap: never commit more than 10% of current balance per trade.
+        Hard cap: dynamic — min(max(risk_per_trade × 2, 10%), 75%) of current balance.
         """
         k = self._kelly_fraction()
         profit = max(0.0, self.balance - self.starting_balance)
@@ -822,7 +827,10 @@ class TradingService:
             self._trade_roi_history.append(roi)
             if len(self._trade_roi_history) > 200:
                 self._trade_roi_history = self._trade_roi_history[-200:]
-            self._save_buffers()   # persist so compound projection survives restarts
+            self._trades_since_roi_save += 1
+            if self._trades_since_roi_save >= 5:
+                self._save_buffers()
+                self._trades_since_roi_save = 0
 
     def _compound_projection(self):
         """
