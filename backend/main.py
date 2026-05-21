@@ -350,27 +350,12 @@ async def start_bot(user = Depends(get_current_user)):
         except Exception as e:
             print(f"Failed to save performance: {e}")
 
-    # In live mode, fetch the real exchange balance so drawdown calculation
-    # uses actual capital, not the configured UI value which may differ.
-    live_balance = user_settings['starting_balance']
-    if not want_sim and api_key:
-        try:
-            import ccxt as _ccxt
-            _ex = _ccxt.blofin({'apiKey': api_key, 'secret': api_secret, 'password': api_password})
-            _acct = _ex.fetch_balance()
-            _total = float(_acct.get('USDT', {}).get('total', 0))
-            if _total > 0:
-                live_balance = _total
-                print(f"[START_BOT] Live balance from Blofin: ${live_balance:.2f}", flush=True)
-        except Exception as _e:
-            print(f"[START_BOT] Could not fetch live balance: {_e}", flush=True)
-
     bot = TradingService(
         user_id=user_id,
         api_key=api_key,
         api_secret=api_secret,
         api_password=api_password,
-        starting_balance=live_balance,
+        starting_balance=user_settings['starting_balance'],
         leverage=user_settings['leverage'],
         selected_coins=user_settings['selected_coins'],
         risk_per_trade=user_settings['risk_per_trade'],

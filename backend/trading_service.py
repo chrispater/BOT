@@ -143,6 +143,7 @@ class TradingService:
         self._load_persisted_model()
         self._last_candle_ts: dict = {}   # symbol → last candle open timestamp
         self._ohlcv_cache:    dict = {}   # symbol → full DataFrame (1000 rows), refreshed incrementally
+        self._drawdown_baseline: float = None  # real exchange balance at first sync — used for drawdown, not starting_balance which may be inflated for sizing
 
         # Market regime state (re-evaluated every 10 cycles)
         self.market_regime = 'sideways'     # 'bull' | 'bear' | 'sideways'
@@ -618,7 +619,8 @@ class TradingService:
     # ── Risk helpers ────────────────────────────────────────────────────────
 
     def _is_drawdown_exceeded(self):
-        drawdown = (self.starting_balance - self.balance) / self.starting_balance
+        baseline = self._drawdown_baseline or self.starting_balance
+        drawdown = (baseline - self.balance) / baseline
         if drawdown > self.max_drawdown_pct:
             logger.warning(
                 f"User {self.user_id}: Drawdown {drawdown:.1%} > max {self.max_drawdown_pct:.1%} — halting entries"
@@ -738,6 +740,9 @@ class TradingService:
             account = self.exchange.fetch_balance()
             total = float(account.get('USDT', {}).get('total', 0))
             if total > 0:
+                if self._drawdown_baseline is None:
+                    self._drawdown_baseline = total
+                    logger.info(f"User {self.user_id}: Drawdown baseline set to ${total:.2f}")
                 old = self.balance
                 self.balance = total
                 logger.info(f"User {self.user_id}: Balance synced ${old:.2f} → ${total:.2f}")
