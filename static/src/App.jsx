@@ -199,6 +199,84 @@ function AuthScreen({ setToken, setError, error }) {
   )
 }
 
+/* ─────────────────────────── Compound Tracker ──────────────────────────── */
+
+function CompoundTracker({ compound, balance }) {
+  const roi = compound?.avg_trade_roi_pct ?? 0
+  const roiColor = roi >= 5 ? '#00d4aa' : roi >= 2 ? '#f5a623' : roi >= 0 ? '#e8eaf0' : '#ff4444'
+
+  const milestones = [
+    { label: '$10K',  trades: compound?.trades_to_10k,  days: compound?.days_to_10k,  target: 10_000 },
+    { label: '$100K', trades: compound?.trades_to_100k, days: compound?.days_to_100k, target: 100_000 },
+    { label: '$1M',   trades: compound?.trades_to_1m,   days: compound?.days_to_1m,   target: 1_000_000 },
+  ]
+
+  const progress1m = compound?.trades_to_1m
+    ? Math.min(100, Math.max(0, (1 - compound.trades_to_1m / (compound.trades_to_1m + (compound?.sample_size || 1))) * 100))
+    : 0
+
+  const fmtDays = (d) => {
+    if (d == null) return '—'
+    if (d < 1) return '<1 day'
+    if (d < 30) return `${Math.round(d)}d`
+    if (d < 365) return `${(d / 30).toFixed(1)}mo`
+    return `${(d / 365).toFixed(1)}yr`
+  }
+
+  return (
+    <div className="card" style={{ background: 'linear-gradient(135deg, #0d1117 0%, #0f1a0f 100%)', border: '1px solid rgba(0,212,170,0.2)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+        <h2 className="card-title" style={{ margin: 0, color: '#00d4aa' }}>Compound Tracker</h2>
+        <span style={{ fontSize: 11, color: '#4a5060', textTransform: 'uppercase', letterSpacing: '1px' }}>
+          {compound?.sample_size || 0} trades sampled
+        </span>
+      </div>
+
+      {/* Big ROI number */}
+      <div style={{ textAlign: 'center', padding: '16px 0 14px', borderBottom: '1px solid rgba(255,255,255,0.06)', marginBottom: 16 }}>
+        <div style={{ fontSize: 11, color: '#8b95a5', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 6 }}>
+          Avg ROI per Trade (last 20)
+        </div>
+        <div style={{ fontSize: 42, fontWeight: 900, color: roiColor, lineHeight: 1 }}>
+          {roi >= 0 ? '+' : ''}{roi.toFixed(2)}%
+        </div>
+        <div style={{ fontSize: 12, color: '#4a5060', marginTop: 6 }}>
+          {compound?.trades_per_day?.toFixed(1) || '—'} trades/day at current pace
+        </div>
+      </div>
+
+      {/* Milestone table */}
+      <div style={{ marginBottom: 8 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr 1fr', gap: '6px 0', fontSize: 11, color: '#4a5060', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px', paddingBottom: 8, borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+          <span>Target</span>
+          <span style={{ textAlign: 'center' }}>Trades</span>
+          <span style={{ textAlign: 'right' }}>ETA</span>
+        </div>
+        {milestones.map(({ label, trades, days, target }) => {
+          const reached = balance >= target
+          return (
+            <div key={label} style={{ display: 'grid', gridTemplateColumns: '80px 1fr 1fr', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+              <span style={{ fontWeight: 800, fontSize: 15, color: reached ? '#00d4aa' : '#e8eaf0' }}>
+                {reached ? '✓ ' : ''}{label}
+              </span>
+              <span style={{ textAlign: 'center', fontWeight: 700, fontSize: 15, color: reached ? '#00d4aa' : trades != null ? '#f5a623' : '#4a5060' }}>
+                {reached ? 'Done' : trades != null ? trades.toLocaleString() : '—'}
+              </span>
+              <span style={{ textAlign: 'right', fontSize: 13, color: reached ? '#00d4aa' : days != null ? '#8b95a5' : '#4a5060' }}>
+                {reached ? '' : fmtDays(days)}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+
+      <p style={{ fontSize: 11, color: '#2a3040', textAlign: 'center', margin: '8px 0 0' }}>
+        Based on realized trade ROI · 100% reinvestment · No guarantee
+      </p>
+    </div>
+  )
+}
+
 /* ─────────────────────────── Dashboard ─────────────────────────── */
 
 function DashboardPage({ botStatus, api, fetchBotStatus, setError, setSuccess }) {
@@ -315,6 +393,11 @@ function DashboardPage({ botStatus, api, fetchBotStatus, setError, setSuccess })
           )
         })()}
       </div>
+
+      {/* Compound Tracker */}
+      {botStatus?.compound && (
+        <CompoundTracker compound={botStatus.compound} balance={botStatus.balance} />
+      )}
 
       {/* Coin Signals */}
       {botStatus?.running && selectedCoins.length > 0 && (

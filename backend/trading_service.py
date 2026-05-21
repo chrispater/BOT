@@ -145,6 +145,7 @@ class TradingService:
         self._ohlcv_cache:    dict = {}   # symbol → full DataFrame (1000 rows), refreshed incrementally
         self._drawdown_baseline: float = None  # real exchange balance at first sync — used for drawdown, not starting_balance which may be inflated for sizing
         self._start_time: float = time.time()  # session start epoch — used for velocity metrics
+        self._trade_roi_history: list = []  # per-trade ROI as fraction of balance before that trade — drives compound projection
 
         # Market regime state (re-evaluated every 10 cycles)
         self.market_regime = 'sideways'     # 'bull' | 'bear' | 'sideways'
@@ -760,6 +761,61 @@ class TradingService:
 
     # ── Status ──────────────────────────────────────────────────────────────
 
+    def _record_trade_roi(self, pnl: float):
+        """Record per-trade ROI as fraction of balance BEFORE this trade closes."""
+        if self.balance > 0:
+            roi = pnl / self.balance
+            self._trade_roi_history.append(roi)
+            if len(self._trade_roi_history) > 200:
+                self._trade_roi_history = self._trade_roi_history[-200:]
+
+    def _compound_projection(self):
+        """
+        Return compound metrics based on actual realized per-trade ROI.
+        Uses last 20 closed trades to compute average ROI per trade, then
+        projects trades/days to reach milestone targets from current balance.
+        """
+        recent = self._trade_roi_history[-20:] if self._trade_roi_history else []
+        if not recent:
+            return None
+
+        avg_roi = sum(recent) / len(recent)  # average ROI per trade (signed fraction)
+        if avg_roi <= 0:
+            return None  # net negative — can't project toward $1MM
+
+        hours_running = (time.time() - self._start_time) / 3600
+        trades_per_day = self.total_trades / max(1, hours_running / 24)
+
+        def trades_to(target):
+            try:
+                if self.balance >= target:
+                    return 0
+                return math.ceil(math.log(target / max(self.balance, 1)) / math.log(1 + avg_roi))
+            except (ValueError, ZeroDivisionError):
+                return None
+
+        def days_to(trades):
+            if trades is None or trades <= 0:
+                return None
+            rate = max(trades_per_day, 0.5)  # assume at least 0.5 trades/day floor
+            return round(trades / rate, 1)
+
+        t10k  = trades_to(10_000)
+        t100k = trades_to(100_000)
+        t1m   = trades_to(1_000_000)
+
+        return {
+            'avg_trade_roi_pct': round(avg_roi * 100, 3),
+            'sample_size': len(recent),
+            'trades_to_10k':  t10k,
+            'trades_to_100k': t100k,
+            'trades_to_1m':   t1m,
+            'days_to_10k':    days_to(t10k),
+            'days_to_100k':   days_to(t100k),
+            'days_to_1m':     days_to(t1m),
+            'trades_per_day': round(trades_per_day, 2),
+        }
+
     def get_status(self):
         coin_signals = {}
         for sig in self.signals_history:
@@ -774,17 +830,8 @@ class TradingService:
         trades_per_day = self.total_trades / max(1, hours_running / 24)
         daily_pnl_pct = (self.balance / max(self.starting_balance, 1) - 1) * 100
 
-        # Estimate daily ROI from current session PnL; use 0 if no gains yet
-        daily_roi = daily_pnl_pct / max(1, hours_running / 24)
-        if daily_roi > 0:
-            try:
-                projected_days_to_1m = math.ceil(
-                    math.log(1_000_000 / max(self.balance, 1)) / math.log(1 + daily_roi / 100)
-                )
-            except (ValueError, ZeroDivisionError):
-                projected_days_to_1m = None
-        else:
-            projected_days_to_1m = None
+        compound = self._compound_projection()
+        projected_days_to_1m = compound['days_to_1m'] if compound else None
 
         return {
             'running': self.running,
@@ -817,6 +864,7 @@ class TradingService:
             'trades_per_day': round(trades_per_day, 2),
             'daily_pnl_pct': round(daily_pnl_pct, 4),
             'projected_days_to_1m': projected_days_to_1m,
+            'compound': compound,
         }
 
     # ── Trade execution ─────────────────────────────────────────────────────
@@ -910,6 +958,7 @@ class TradingService:
                 self.total_trades += 1
                 if pnl > 0:
                     self.winning_trades += 1
+                self._record_trade_roi(pnl)
                 self.balance += pnl
 
                 if pnl > 0:
@@ -1050,6 +1099,7 @@ class TradingService:
                     self.total_trades += 1
                     if pnl > 0:
                         self.winning_trades += 1
+                    self._record_trade_roi(pnl)
                     self.balance += pnl
 
                     if pnl > 0:
