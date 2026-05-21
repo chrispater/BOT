@@ -1328,7 +1328,7 @@ function SettingsPage({ api, logout, setError, setSuccess, botStatus }) {
         <div className="input-group">
           <label>Risk Per Trade (%)</label>
           <input type="number" value={riskPerTrade} onChange={e => setRiskPerTrade(Number(e.target.value))} min="0.1" max="100" step="0.1" disabled={isBotRunning} style={dis(isBotRunning)} />
-          <p style={{ fontSize: 12, color: '#4a5060', marginTop: 4 }}>Percentage of balance risked per trade (0.1%–10%)</p>
+          <p style={{ fontSize: 12, color: '#4a5060', marginTop: 4 }}>Percentage of balance per trade (0.1%–100%)</p>
         </div>
 
         <div className="input-group">

@@ -373,8 +373,11 @@ async def start_bot(user = Depends(get_current_user)):
         on_performance=on_performance
     )
     bot.running = True
-    # Restore balance from DB — preserves compound growth across restarts
+    # Restore balance from DB — preserves compound growth across restarts.
+    # Also update starting_balance so the profit-tier and drawdown baseline
+    # track from the actual current balance, not a stale configured value.
     bot.balance = restored_balance
+    bot.starting_balance = restored_balance
     user_bots[user_id] = bot
 
     asyncio.create_task(run_bot_loop(user_id))

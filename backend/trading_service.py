@@ -144,6 +144,7 @@ class TradingService:
         self._last_candle_ts: dict = {}   # symbol → last candle open timestamp
         self._ohlcv_cache:    dict = {}   # symbol → full DataFrame (1000 rows), refreshed incrementally
         self._drawdown_baseline: float = None  # real exchange balance at first sync — used for drawdown, not starting_balance which may be inflated for sizing
+        self._start_time: float = time.time()  # session start epoch — used for velocity metrics
 
         # Market regime state (re-evaluated every 10 cycles)
         self.market_regime = 'sideways'     # 'bull' | 'bear' | 'sideways'
@@ -659,8 +660,16 @@ class TradingService:
         k = self._kelly_fraction()
         profit = max(0.0, self.balance - self.starting_balance)
         base_cap = min(self.balance, self.starting_balance)
-        margin = (base_cap * k) + (profit * k * self.profit_risk_multiplier)
-        return min(margin, self.balance * 0.10)
+        base_margin = base_cap * k
+        profit_margin = profit * k * self.profit_risk_multiplier
+        margin = base_margin + profit_margin
+        capped = min(margin, self.balance * 0.10)
+        logger.info(
+            f"User {self.user_id}: [LIVE] Margin calc: base=${base_cap:.2f} k={k*100:.1f}% → ${base_margin:.2f} | "
+            f"profit_tier=${profit:.2f} × {self.profit_risk_multiplier} → ${profit_margin:.2f} | "
+            f"total=${capped:.2f}"
+        )
+        return capped
 
     def _get_volatility_multiplier(self, df) -> float:
         """Scale size inversely to ATR: high vol → 0.5×, low vol → 1.5×. Baseline 0.15% ATR/price."""
@@ -759,6 +768,24 @@ class TradingService:
             coin_signals[coin] = sig
 
         open_positions = list(self.positions.values())
+
+        # ── Compound velocity metrics ──────────────────────────────────────
+        hours_running = (time.time() - self._start_time) / 3600
+        trades_per_day = self.total_trades / max(1, hours_running / 24)
+        daily_pnl_pct = (self.balance / max(self.starting_balance, 1) - 1) * 100
+
+        # Estimate daily ROI from current session PnL; use 0 if no gains yet
+        daily_roi = daily_pnl_pct / max(1, hours_running / 24)
+        if daily_roi > 0:
+            try:
+                projected_days_to_1m = math.ceil(
+                    math.log(1_000_000 / max(self.balance, 1)) / math.log(1 + daily_roi / 100)
+                )
+            except (ValueError, ZeroDivisionError):
+                projected_days_to_1m = None
+        else:
+            projected_days_to_1m = None
+
         return {
             'running': self.running,
             'simulation_mode': self.simulation_mode,
@@ -786,6 +813,10 @@ class TradingService:
             'last_signals': self.signals_history[-10:] if self.signals_history else [],
             'coin_signals': coin_signals,
             'recent_trades': self.trades_history[-10:] if self.trades_history else [],
+            # Compound velocity
+            'trades_per_day': round(trades_per_day, 2),
+            'daily_pnl_pct': round(daily_pnl_pct, 4),
+            'projected_days_to_1m': projected_days_to_1m,
         }
 
     # ── Trade execution ─────────────────────────────────────────────────────
@@ -923,6 +954,11 @@ class TradingService:
                     return
                 if not self._entry_filter(signal, df):
                     return  # _entry_filter already logs the reason
+
+                # Sync balance from exchange before sizing — catches deposits/settlements
+                # that occurred since the last close so every entry compounds off the
+                # latest real balance.
+                self._sync_live_balance()
 
                 try:
                     acct = self.exchange.fetch_balance()
