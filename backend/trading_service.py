@@ -552,9 +552,13 @@ class TradingService:
         X_sc = self.scaler.fit_transform(X_imp)
 
         y_ser = pd.Series(y_all)
+        n_pos = int((y_ser == 1).sum())
+        n_neg = int((y_ser == -1).sum())
         try:
-            smote = SMOTE(random_state=42,
-                          k_neighbors=min(3, int((y_ser == 1).sum()) - 1, int((y_ser == -1).sum()) - 1))
+            kn = min(3, n_pos - 1, n_neg - 1)
+            if kn < 1:
+                raise ValueError("Insufficient minority class samples for SMOTE")
+            smote = SMOTE(random_state=42, k_neighbors=kn)
             X_res, y_res = smote.fit_resample(X_sc, y_ser)
         except Exception:
             X_res, y_res = X_sc, y_ser
@@ -701,7 +705,8 @@ class TradingService:
 
         # Confidence scaling — aggressive on no-brainers, modest on borderlines
         conf_scale = 1.0
-        if confidence is not None:
+        if confidence is not None and not (confidence != confidence):  # guard NaN
+            confidence = max(0.0, min(1.0, confidence))  # clamp to [0,1]
             conf_range = max(0.01, 1.0 - self.min_confidence)
             conf_scale = 0.5 + (confidence - self.min_confidence) / conf_range
             conf_scale = max(0.5, min(1.5, conf_scale))
@@ -1309,21 +1314,25 @@ class TradingService:
                 adx_raw = row.get('adx', 25); adx_f = 25.0 if pd.isna(adx_raw) else float(adx_raw)
                 vol_raw = row.get('volume_ratio', 1.0); vol_f = 1.0 if pd.isna(vol_raw) else float(vol_raw)
                 if position is None and sig_val != 0 and conf >= self.min_confidence and adx_f >= 18 and vol_f >= 0.65:
-                    # ATR-adjusted margin (consistent with live sizing)
-                    atr_val = row.get('atr', np.nan)
-                    vol_mult = max(0.5, min(1.5, 0.0015 / (atr_val / price + 1e-10))) if (
-                        pd.notna(atr_val) and atr_val > 0 and price > 0) else 1.0
-
+                    # Margin formula mirrors live bot exactly: confidence scaling + risk_per_trade ceiling
+                    # (vol_mult removed — live bot doesn't apply it, so backtest must match)
+                    SLIPPAGE = 0.0005  # 5 bps round-trip slippage per leg (realistic for market orders)
                     profit = max(0, balance - balance_per_coin)
                     k = self.risk_per_trade  # Fixed fraction in backtest (Kelly needs live history)
-                    margin = (balance_per_coin * k + profit * k * self.profit_risk_multiplier) * vol_mult
-                    margin = min(margin, balance * 0.10)
+                    margin = balance_per_coin * k + profit * k * self.profit_risk_multiplier
+                    # Confidence scaling — matches _calculate_margin() exactly
+                    conf_rng = max(0.01, 1.0 - self.min_confidence)
+                    c_scale = max(0.5, min(1.5, 0.5 + (conf - self.min_confidence) / conf_rng))
+                    margin *= c_scale
+                    # Risk ceiling — same formula as live
+                    risk_ceil = min(max(self.risk_per_trade * 2.0, 0.10), 0.75)
+                    margin = min(margin, balance * risk_ceil)
                     if margin <= 0:
                         continue
 
                     notional = margin * self.leverage
                     size = notional / price
-                    entry_fee = notional * TAKER_FEE
+                    entry_fee = notional * (TAKER_FEE + SLIPPAGE)
                     position = {
                         'side': 'long' if sig_val == 1 else 'short',
                         'size': size, 'margin': margin, 'entry_fee': entry_fee,
@@ -1365,7 +1374,7 @@ class TradingService:
                     if should_exit:
                         price_change = (price - entry_price) if position['side'] == 'long' else (entry_price - price)
                         pnl_amount = price_change * position['size']
-                        exit_fee = position['size'] * price * TAKER_FEE
+                        exit_fee = position['size'] * price * (TAKER_FEE + SLIPPAGE)
                         total_fees = position['entry_fee'] + exit_fee
                         net_pnl = pnl_amount - total_fees
                         balance += net_pnl
@@ -1738,13 +1747,21 @@ class ParameterOptimizer:
                     if i - last_trade_candle < cooldown_candles:
                         continue
 
-                    if position is None and sig_val != 0 and conf >= params['min_confidence']:
-                        margin = balance * params['risk_per_trade']
+                    # Entry filter must match live bot exactly (ADX + volume gate)
+                    adx_o = row.get('adx', 25); adx_o = 25.0 if pd.isna(adx_o) else float(adx_o)
+                    vol_o = row.get('volume_ratio', 1.0); vol_o = 1.0 if pd.isna(vol_o) else float(vol_o)
+                    SLIP = 0.0005  # 5 bps slippage per leg
+                    if position is None and sig_val != 0 and conf >= params['min_confidence'] and adx_o >= 18 and vol_o >= 0.65:
+                        # Confidence-scaled margin (mirrors live _calculate_margin)
+                        conf_rng_o = max(0.01, 1.0 - params['min_confidence'])
+                        c_scale_o = max(0.5, min(1.5, 0.5 + (conf - params['min_confidence']) / conf_rng_o))
+                        risk_ceil_o = min(max(params['risk_per_trade'] * 2.0, 0.10), 0.75)
+                        margin = min(balance * params['risk_per_trade'] * c_scale_o, balance * risk_ceil_o)
                         if margin <= 0 or margin > balance * 0.95:
                             continue
                         notional = margin * params['leverage']
                         size = notional / price
-                        entry_fee = notional * TAKER_FEE
+                        entry_fee = notional * (TAKER_FEE + SLIP)
                         position = {
                             'side': 'long' if sig_val == 1 else 'short',
                             'size': size, 'margin': margin, 'entry_fee': entry_fee,
@@ -1789,7 +1806,7 @@ class ParameterOptimizer:
                                 else (entry_price - price)
                             )
                             pnl_amount = price_change * position['size']
-                            exit_fee = position['size'] * price * TAKER_FEE
+                            exit_fee = position['size'] * price * (TAKER_FEE + SLIP)
                             net_pnl = pnl_amount - position['entry_fee'] - exit_fee
                             balance += net_pnl
 
