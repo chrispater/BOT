@@ -229,8 +229,8 @@ async def update_settings(settings: TradingSettings, user = Depends(get_current_
             if coin not in AVAILABLE_COINS:
                 raise HTTPException(status_code=400, detail=f"Invalid coin: {coin}")
 
-    if settings.risk_per_trade is not None and (settings.risk_per_trade < 0.001 or settings.risk_per_trade > 0.1):
-        raise HTTPException(status_code=400, detail="Risk per trade must be between 0.1% and 10%")
+    if settings.risk_per_trade is not None and (settings.risk_per_trade < 0.001 or settings.risk_per_trade > 1.0):
+        raise HTTPException(status_code=400, detail="Risk per trade must be between 0.1% and 100%")
 
     if settings.stop_loss_pct is not None and (settings.stop_loss_pct < 0.001 or settings.stop_loss_pct > 0.1):
         raise HTTPException(status_code=400, detail="Stop loss must be between 0.1% and 10%")

@@ -647,7 +647,7 @@ class TradingService:
         p = len(wins) / len(closed)
         b = (sum(wins) / len(wins)) / (sum(losses) / len(losses))
         kelly = (p * b - (1 - p)) / b
-        return max(0.005, min(0.05, kelly * 0.5))   # half-Kelly, hard caps
+        return max(0.001, min(self.risk_per_trade, kelly * 0.5))
 
     def _calculate_margin(self) -> float:
         """

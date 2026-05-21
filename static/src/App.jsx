@@ -1168,7 +1168,7 @@ function SettingsPage({ api, logout, setError, setSuccess, botStatus }) {
     if (isBotRunning) { setError('Stop the bot before changing settings'); return }
 
     const v = {
-      risk:       Math.max(0.1, Math.min(10, riskPerTrade)),
+      risk:       Math.max(0.1, Math.min(100, riskPerTrade)),
       sl:         Math.max(0.1, Math.min(10, stopLossPct)),
       tp:         Math.max(0.1, Math.min(20, takeProfitPct)),
       cooldown:   Math.max(1, Math.min(60, Math.round(tradeCooldown))),
@@ -1327,7 +1327,7 @@ function SettingsPage({ api, logout, setError, setSuccess, botStatus }) {
 
         <div className="input-group">
           <label>Risk Per Trade (%)</label>
-          <input type="number" value={riskPerTrade} onChange={e => setRiskPerTrade(Number(e.target.value))} min="0.1" max="10" step="0.1" disabled={isBotRunning} style={dis(isBotRunning)} />
+          <input type="number" value={riskPerTrade} onChange={e => setRiskPerTrade(Number(e.target.value))} min="0.1" max="100" step="0.1" disabled={isBotRunning} style={dis(isBotRunning)} />
           <p style={{ fontSize: 12, color: '#4a5060', marginTop: 4 }}>Percentage of balance risked per trade (0.1%–10%)</p>
         </div>
 
