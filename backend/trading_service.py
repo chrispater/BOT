@@ -835,9 +835,7 @@ class TradingService:
             if not self._entry_filter(signal, df):
                 return
 
-            vol_mult = self._get_volatility_multiplier(df) if df is not None else 1.0
-            regime_mult = self._get_regime_multiplier(signal)
-            margin = self._calculate_margin() * vol_mult * regime_mult
+            margin = self._calculate_margin()
             if margin <= 0:
                 return
 
@@ -863,7 +861,7 @@ class TradingService:
                 self.on_trade(self.user_id, symbol, side, 'open', size, price, None, confidence, None)
             logger.info(
                 f"User {self.user_id}: [SIM] Open {side.upper()} {symbol} @ ${price:.2f} | "
-                f"Margin ${margin:.2f} vol×{vol_mult:.2f} regime×{regime_mult:.2f} [{self.market_regime}]"
+                f"Margin ${margin:.2f} [{self.market_regime}]"
             )
 
         elif position is not None:
@@ -935,9 +933,7 @@ class TradingService:
                     logger.warning(f"User {self.user_id}: Balance fetch failed: {e}")
                     avail = self.balance
 
-                vol_mult = self._get_volatility_multiplier(df) if df is not None else 1.0
-                regime_mult = self._get_regime_multiplier(signal)
-                margin = self._calculate_margin() * vol_mult * regime_mult
+                margin = self._calculate_margin()
                 margin = min(margin, avail * 0.95)
 
                 notional = margin * self.leverage
@@ -981,8 +977,7 @@ class TradingService:
                     self.on_trade(self.user_id, symbol, pos_side, 'open', size, price, None, confidence, None)
                 logger.info(
                     f"User {self.user_id}: [LIVE] Open {pos_side.upper()} {symbol} @ ${price:.2f} | "
-                    f"Margin ${margin:.2f} · {self.leverage}x lev · notional ${notional:.2f} | "
-                    f"vol×{vol_mult:.2f} regime×{regime_mult:.2f}"
+                    f"Margin ${margin:.2f} · {self.leverage}x lev · notional ${notional:.2f}"
                 )
 
             elif position is not None:
