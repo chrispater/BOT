@@ -146,6 +146,7 @@ class TradingService:
         self._drawdown_baseline: float = None  # real exchange balance at first sync — used for drawdown, not starting_balance which may be inflated for sizing
         self._start_time: float = time.time()  # session start epoch — used for velocity metrics
         self._trade_roi_history: list = []  # per-trade ROI as fraction of balance before that trade — drives compound projection
+        self._last_dynamic_leverage: int = leverage  # effective leverage used on last trade — set by _dynamic_leverage()
 
         # Market regime state (re-evaluated every 10 cycles)
         self.market_regime = 'sideways'     # 'bull' | 'bear' | 'sideways'
@@ -651,11 +652,32 @@ class TradingService:
         kelly = (p * b - (1 - p)) / b
         return max(0.001, min(self.risk_per_trade, kelly * 0.5))
 
-    def _calculate_margin(self) -> float:
+    def _dynamic_leverage(self, confidence: float) -> int:
         """
-        Profit-tier compounding using Kelly fraction.
+        Scale leverage up/down based on signal confidence.
+        No-brainer trades (high conf) use full user-set leverage.
+        Borderline trades use a fraction — smaller position, same margin.
+        """
+        base = self.leverage
+        if confidence >= 0.85:
+            scale = 1.00   # no-brainer — full throttle
+        elif confidence >= 0.75:
+            scale = 0.85   # strong signal
+        elif confidence >= 0.65:
+            scale = 0.65   # moderate — be measured
+        else:
+            scale = 0.50   # borderline — minimal
+        result = max(3, round(base * scale))
+        self._last_dynamic_leverage = result
+        return result
+
+    def _calculate_margin(self, confidence: float = None) -> float:
+        """
+        Profit-tier compounding using Kelly fraction, scaled by signal confidence.
           • Base capital risks at Kelly%.
           • Profits above starting_balance risk at Kelly% × profit_risk_multiplier.
+          • Confidence multiplier: 0.5x at min_confidence threshold → 1.5x at 90%+ confidence.
+            No-brainer setups get 50% more margin; borderline trades get 50% less.
         Hard cap: never commit more than 10% of current balance per trade.
         """
         k = self._kelly_fraction()
@@ -664,13 +686,23 @@ class TradingService:
         base_margin = base_cap * k
         profit_margin = profit * k * self.profit_risk_multiplier
         margin = base_margin + profit_margin
+
+        # Confidence scaling — aggressive on no-brainers, modest on borderlines
+        conf_scale = 1.0
+        if confidence is not None:
+            conf_range = max(0.01, 1.0 - self.min_confidence)
+            conf_scale = 0.5 + (confidence - self.min_confidence) / conf_range
+            conf_scale = max(0.5, min(1.5, conf_scale))
+            margin = margin * conf_scale
+
         capped = min(margin, self.balance * 0.10)
+        conf_str = f"{confidence:.2f}" if confidence is not None else "n/a"
         logger.info(
-            f"User {self.user_id}: [LIVE] Margin calc: base=${base_cap:.2f} k={k*100:.1f}% → ${base_margin:.2f} | "
-            f"profit_tier=${profit:.2f} × {self.profit_risk_multiplier} → ${profit_margin:.2f} | "
-            f"total=${capped:.2f}"
+            f"User {self.user_id}: [MARGIN] base=${base_cap:.2f} k={k*100:.1f}% | "
+            f"profit_tier=${profit:.2f}×{self.profit_risk_multiplier} | "
+            f"conf={conf_str} scale={conf_scale:.2f} → ${capped:.2f}"
         )
-        return capped
+        return max(1.0, capped)
 
     def _get_volatility_multiplier(self, df) -> float:
         """Scale size inversely to ATR: high vol → 0.5×, low vol → 1.5×. Baseline 0.15% ATR/price."""
@@ -816,6 +848,39 @@ class TradingService:
             'trades_per_day': round(trades_per_day, 2),
         }
 
+    def apply_optimizer_config(self, config: dict):
+        """
+        Hot-apply a best config from an optimizer run to this live/sim bot instance.
+        Clears the OHLCV cache on timeframe change so the next cycle fetches fresh data.
+        """
+        changed = []
+        if 'leverage' in config:
+            self.leverage = int(config['leverage'])
+            self._last_dynamic_leverage = self.leverage
+            changed.append(f"leverage={self.leverage}x")
+        if 'timeframe' in config and config['timeframe'] in VALID_TIMEFRAMES:
+            if config['timeframe'] != self.timeframe:
+                self.timeframe = config['timeframe']
+                self._ohlcv_cache.clear()   # force fresh fetch on new TF
+                changed.append(f"timeframe={self.timeframe}")
+        if 'risk_per_trade' in config:
+            self.risk_per_trade = float(config['risk_per_trade'])
+            changed.append(f"risk={self.risk_per_trade:.1%}")
+        if 'stop_loss_pct' in config:
+            self.stop_loss_pct = float(config['stop_loss_pct'])
+            changed.append(f"sl={self.stop_loss_pct:.1%}")
+        if 'take_profit_pct' in config:
+            self.take_profit_pct = float(config['take_profit_pct'])
+            changed.append(f"tp={self.take_profit_pct:.1%}")
+        if 'trailing_stop_pct' in config:
+            self.trailing_stop_pct = float(config['trailing_stop_pct'])
+            changed.append(f"trail={self.trailing_stop_pct:.1%}")
+        if 'min_confidence' in config:
+            self.min_confidence = float(config['min_confidence'])
+            changed.append(f"min_conf={self.min_confidence:.0%}")
+        logger.info(f"User {self.user_id}: [OPTIMIZER] Config applied: {', '.join(changed) or 'no changes'}")
+        return changed
+
     def get_status(self):
         coin_signals = {}
         for sig in self.signals_history:
@@ -865,6 +930,8 @@ class TradingService:
             'daily_pnl_pct': round(daily_pnl_pct, 4),
             'projected_days_to_1m': projected_days_to_1m,
             'compound': compound,
+            # Dynamic sizing
+            'last_dynamic_leverage': self._last_dynamic_leverage,
         }
 
     # ── Trade execution ─────────────────────────────────────────────────────
@@ -914,17 +981,19 @@ class TradingService:
             if not self._entry_filter(signal, df):
                 return
 
-            margin = self._calculate_margin()
+            margin = self._calculate_margin(confidence)
             if margin <= 0:
                 return
 
-            notional = margin * self.leverage
+            dyn_lev = self._dynamic_leverage(confidence)
+            notional = margin * dyn_lev
             size = notional / price
             side = 'long' if signal == 1 else 'short'
+            conf_tier = 'NO-BRAINER' if confidence >= 0.85 else ('STRONG' if confidence >= 0.75 else 'MODERATE')
 
             self.positions[symbol] = {
                 'side': side, 'size': size, 'entry_price': price,
-                'symbol': symbol, 'margin': margin,
+                'symbol': symbol, 'margin': margin, 'leverage': dyn_lev,
                 'high_water_mark': price, 'low_water_mark': price,
             }
             self.entry_price = price
@@ -933,6 +1002,7 @@ class TradingService:
             trade = {
                 'type': 'open', 'side': side, 'size': float(size), 'price': float(price),
                 'confidence': float(confidence), 'symbol': symbol, 'margin': float(margin),
+                'leverage': dyn_lev, 'conf_tier': conf_tier,
                 'regime': self.market_regime, 'time': datetime.now().isoformat(),
             }
             self.trades_history.append(trade)
@@ -940,7 +1010,7 @@ class TradingService:
                 self.on_trade(self.user_id, symbol, side, 'open', size, price, None, confidence, None)
             logger.info(
                 f"User {self.user_id}: [SIM] Open {side.upper()} {symbol} @ ${price:.2f} | "
-                f"Margin ${margin:.2f} [{self.market_regime}]"
+                f"Margin ${margin:.2f} · {dyn_lev}x lev [{conf_tier}]"
             )
 
         elif position is not None:
@@ -1018,28 +1088,30 @@ class TradingService:
                     logger.warning(f"User {self.user_id}: Balance fetch failed: {e}")
                     avail = self.balance
 
-                margin = self._calculate_margin()
+                margin = self._calculate_margin(confidence)
                 margin = min(margin, avail * 0.95)
 
-                notional = margin * self.leverage
+                dyn_lev = self._dynamic_leverage(confidence)
+                notional = margin * dyn_lev
                 size = notional / price
                 side = 'buy' if signal == 1 else 'sell'
                 pos_side = 'long' if signal == 1 else 'short'
+                conf_tier = 'NO-BRAINER' if confidence >= 0.85 else ('STRONG' if confidence >= 0.75 else 'MODERATE')
 
                 market = self.exchange.market(symbol)
                 contract_size = market.get('contractSize', 1) or 1
                 amount = size / contract_size
 
                 try:
-                    # Cross margin: set mode first, then leverage
+                    # Cross margin: set mode first, then dynamic leverage
                     try:
                         self.exchange.set_margin_mode('cross', symbol)
                     except Exception:
                         pass  # already set, or exchange doesn't need explicit call
-                    self.exchange.set_leverage(self.leverage, symbol, params={'marginMode': 'cross'})
-                    logger.info(f"User {self.user_id}: Leverage set to {self.leverage}x (cross) on {symbol}")
+                    self.exchange.set_leverage(dyn_lev, symbol, params={'marginMode': 'cross'})
+                    logger.info(f"User {self.user_id}: Leverage set to {dyn_lev}x (cross, {conf_tier}) on {symbol}")
                 except Exception as e:
-                    logger.error(f"User {self.user_id}: set_leverage({self.leverage}x, {symbol}) FAILED — {type(e).__name__}: {e}. Exchange may be using a different leverage.")
+                    logger.error(f"User {self.user_id}: set_leverage({dyn_lev}x, {symbol}) FAILED — {type(e).__name__}: {e}.")
 
                 order = self.exchange.create_order(
                     symbol=symbol, type='market', side=side, amount=amount,
@@ -1047,7 +1119,8 @@ class TradingService:
                 )
                 self.positions[symbol] = {
                     'side': pos_side, 'size': size, 'entry_price': price,
-                    'symbol': symbol, 'margin': margin, 'order_id': order.get('id'),
+                    'symbol': symbol, 'margin': margin, 'leverage': dyn_lev,
+                    'order_id': order.get('id'),
                     'high_water_mark': price, 'low_water_mark': price,
                 }
                 self.entry_price = price
@@ -1056,13 +1129,14 @@ class TradingService:
                 self.trades_history.append({
                     'type': 'open', 'side': pos_side, 'size': float(size), 'price': float(price),
                     'confidence': float(confidence), 'symbol': symbol, 'margin': float(margin),
+                    'leverage': dyn_lev, 'conf_tier': conf_tier,
                     'regime': self.market_regime, 'time': datetime.now().isoformat(),
                 })
                 if self.on_trade:
                     self.on_trade(self.user_id, symbol, pos_side, 'open', size, price, None, confidence, None)
                 logger.info(
                     f"User {self.user_id}: [LIVE] Open {pos_side.upper()} {symbol} @ ${price:.2f} | "
-                    f"Margin ${margin:.2f} · {self.leverage}x lev · notional ${notional:.2f}"
+                    f"Margin ${margin:.2f} · {dyn_lev}x lev [{conf_tier}] · notional ${notional:.2f}"
                 )
 
             elif position is not None:

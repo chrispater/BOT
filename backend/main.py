@@ -759,6 +759,43 @@ async def get_latest_optimization(user = Depends(get_current_user)):
         return {"status": "none", "message": "No previous optimization found"}
     return {"status": "found", "run": run}
 
+@app.post("/api/bot/apply-optimizer/{run_id}")
+async def apply_optimizer_to_bot(run_id: int, user = Depends(get_current_user)):
+    """Hot-apply the best config from an optimizer run to the running bot."""
+    user_id = user['user_id']
+    run = get_optimization_run(run_id, user_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Optimization run not found")
+
+    try:
+        result = json.loads(run['result']) if isinstance(run['result'], str) else run['result']
+    except (json.JSONDecodeError, TypeError):
+        raise HTTPException(status_code=400, detail="Could not parse optimization result")
+
+    best_config = result.get('best_config') or result.get('configs', [None])[0]
+    if not best_config:
+        raise HTTPException(status_code=400, detail="No best config found in this run")
+
+    applied_to_live = False
+    if user_id in user_bots:
+        changed = user_bots[user_id].apply_optimizer_config(best_config)
+        applied_to_live = True
+
+    # Also persist the config changes to DB settings
+    settings = get_user_settings(user_id) or {}
+    updatable = ['leverage', 'timeframe', 'risk_per_trade', 'stop_loss_pct',
+                 'take_profit_pct', 'trailing_stop_pct', 'min_confidence']
+    for k in updatable:
+        if k in best_config:
+            settings[k] = best_config[k]
+    update_user_settings(user_id, settings)
+
+    return {
+        "success": True,
+        "applied_to_live_bot": applied_to_live,
+        "config": best_config,
+    }
+
 @app.get("/api/user/permissions")
 async def get_my_permissions(user = Depends(get_current_user)):
     user_id = user['user_id']

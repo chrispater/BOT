@@ -201,9 +201,11 @@ function AuthScreen({ setToken, setError, error }) {
 
 /* ─────────────────────────── Compound Tracker ──────────────────────────── */
 
-function CompoundTracker({ compound, balance }) {
+function CompoundTracker({ compound, balance, dynLeverage, maxLeverage }) {
   const roi = compound?.avg_trade_roi_pct ?? 0
   const roiColor = roi >= 5 ? '#00d4aa' : roi >= 2 ? '#f5a623' : roi >= 0 ? '#e8eaf0' : '#ff4444'
+  const levUsed = dynLeverage || maxLeverage
+  const levPct = maxLeverage ? Math.round((levUsed / maxLeverage) * 100) : 100
 
   const milestones = [
     { label: '$10K',  trades: compound?.trades_to_10k,  days: compound?.days_to_10k,  target: 10_000 },
@@ -240,8 +242,11 @@ function CompoundTracker({ compound, balance }) {
         <div style={{ fontSize: 42, fontWeight: 900, color: roiColor, lineHeight: 1 }}>
           {roi >= 0 ? '+' : ''}{roi.toFixed(2)}%
         </div>
-        <div style={{ fontSize: 12, color: '#4a5060', marginTop: 6 }}>
-          {compound?.trades_per_day?.toFixed(1) || '—'} trades/day at current pace
+        <div style={{ fontSize: 12, color: '#4a5060', marginTop: 6, display: 'flex', justifyContent: 'center', gap: 12 }}>
+          <span>{compound?.trades_per_day?.toFixed(1) || '—'} trades/day</span>
+          {levUsed && <span style={{ color: levPct >= 90 ? '#00d4aa' : levPct >= 70 ? '#f5a623' : '#8b95a5' }}>
+            last entry: {levUsed}x lev ({levPct}% of max)
+          </span>}
         </div>
       </div>
 
@@ -396,7 +401,7 @@ function DashboardPage({ botStatus, api, fetchBotStatus, setError, setSuccess })
 
       {/* Compound Tracker */}
       {botStatus?.compound && (
-        <CompoundTracker compound={botStatus.compound} balance={botStatus.balance} />
+        <CompoundTracker compound={botStatus.compound} balance={botStatus.balance} dynLeverage={botStatus.last_dynamic_leverage} maxLeverage={botStatus.leverage} />
       )}
 
       {/* Coin Signals */}
@@ -487,6 +492,7 @@ function DashboardPage({ botStatus, api, fetchBotStatus, setError, setSuccess })
                   <span>Entry: <strong style={{ color: '#e8eaf0' }}>${pos.entry_price?.toLocaleString()}</strong></span>
                   <span>Size: <strong style={{ color: '#e8eaf0' }}>{pos.size?.toFixed(4)}</strong></span>
                   <span>Margin: <strong style={{ color: '#e8eaf0' }}>${pos.margin?.toFixed(2)}</strong></span>
+                  <span>Leverage: <strong style={{ color: '#f5a623' }}>{pos.leverage || botStatus?.leverage}x</strong></span>
                   {isLong && pos.high_water_mark && (
                     <span>Peak: <strong style={{ color: '#00d4aa' }}>${pos.high_water_mark?.toLocaleString()}</strong></span>
                   )}
@@ -494,6 +500,15 @@ function DashboardPage({ botStatus, api, fetchBotStatus, setError, setSuccess })
                     <span>Low: <strong style={{ color: '#ff4444' }}>${pos.low_water_mark?.toLocaleString()}</strong></span>
                   )}
                 </div>
+                {pos.conf_tier && (
+                  <div style={{ marginTop: 6, display: 'flex', gap: 6 }}>
+                    <span style={{
+                      padding: '2px 8px', borderRadius: 10, fontSize: 10, fontWeight: 700,
+                      background: pos.conf_tier === 'NO-BRAINER' ? 'rgba(0,212,170,0.2)' : pos.conf_tier === 'STRONG' ? 'rgba(245,166,35,0.2)' : 'rgba(255,255,255,0.08)',
+                      color: pos.conf_tier === 'NO-BRAINER' ? '#00d4aa' : pos.conf_tier === 'STRONG' ? '#f5a623' : '#8b95a5',
+                    }}>{pos.conf_tier}</span>
+                  </div>
+                )}
               </div>
             )
           })}
@@ -534,7 +549,13 @@ function TradesPage({ botStatus }) {
                   </div>
                 )}
                 <div style={{ fontSize: 12, color: '#8b95a5', marginTop: 2 }}>
-                  {trade.reason || (trade.confidence ? (trade.confidence * 100).toFixed(0) + '% conf' : '')}
+                  {trade.reason
+                    ? trade.reason
+                    : trade.conf_tier
+                      ? `${trade.conf_tier} · ${trade.leverage || ''}x`
+                      : trade.confidence
+                        ? (trade.confidence * 100).toFixed(0) + '% conf'
+                        : ''}
                 </div>
               </div>
             </div>
@@ -889,6 +910,7 @@ function OptimizePage({ api, setError, setSuccess }) {
   const [optimizeError, setOptimizeError] = useState('')
   const [selectedConfig, setSelectedConfig] = useState(null)
   const [applyLoading, setApplyLoading] = useState(false)
+  const [applyingRunId, setApplyingRunId] = useState(null)
   const [history, setHistory] = useState([])
   const [loadedRunId, setLoadedRunId] = useState(null)
   const pollIntervalRef = useRef(null)
@@ -933,6 +955,19 @@ function OptimizePage({ api, setError, setSuccess }) {
     } catch (e) {
       setError('Failed to load historical run')
     }
+  }
+
+  const applyRunToBot = async (runId) => {
+    setApplyingRunId(runId)
+    try {
+      const r = await api.post('/bot/apply-optimizer/' + runId)
+      const cfg = r.data.config
+      const liveMsg = r.data.applied_to_live_bot ? ' (applied to live bot)' : ' (saved to settings)'
+      setSuccess(`Optimizer config applied${liveMsg}: ${cfg.timeframe} · ${cfg.leverage}x lev · ${(cfg.risk_per_trade * 100).toFixed(1)}% risk`)
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Failed to apply optimizer run')
+    }
+    setApplyingRunId(null)
   }
 
   const runOptimization = async () => {
@@ -1109,6 +1144,7 @@ function OptimizePage({ api, setError, setSuccess }) {
               <tbody>
                 {history.map(run => {
                   const isLoaded = loadedRunId === run.id
+                  const isApplying = applyingRunId === run.id
                   return (
                     <tr key={run.id} style={{
                       borderBottom: '1px solid rgba(255,255,255,0.05)',
@@ -1129,15 +1165,26 @@ function OptimizePage({ api, setError, setSuccess }) {
                       <td style={{ padding: '8px 8px', textAlign: 'right', color: '#8b95a5' }}>
                         {run.valid_configs}/{run.total_tested}
                       </td>
-                      <td style={{ padding: '8px 8px', textAlign: 'right' }}>
-                        <button
-                          className="btn btn-secondary"
-                          style={{ padding: '4px 12px', fontSize: 12, width: 'auto', opacity: isLoaded ? 0.5 : 1 }}
-                          onClick={() => loadHistoricalRun(run.id)}
-                          disabled={isLoaded}
-                        >
-                          {isLoaded ? 'Loaded' : 'Load'}
-                        </button>
+                      <td style={{ padding: '6px 4px', textAlign: 'right' }}>
+                        <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+                          <button
+                            className="btn btn-secondary"
+                            style={{ padding: '4px 10px', fontSize: 11, width: 'auto', opacity: isLoaded ? 0.5 : 1 }}
+                            onClick={() => loadHistoricalRun(run.id)}
+                            disabled={isLoaded}
+                          >
+                            {isLoaded ? '✓' : 'Load'}
+                          </button>
+                          <button
+                            className="btn btn-success"
+                            style={{ padding: '4px 10px', fontSize: 11, width: 'auto', background: '#00d4aa', color: '#0a0d12', fontWeight: 700, opacity: isApplying ? 0.5 : 1 }}
+                            onClick={() => applyRunToBot(run.id)}
+                            disabled={isApplying}
+                            title="Hot-apply this run's best config to the running bot"
+                          >
+                            {isApplying ? '...' : '⚡ Apply'}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   )
