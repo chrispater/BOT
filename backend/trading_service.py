@@ -900,7 +900,6 @@ class TradingService:
                     f"PnL ${pnl:.2f} ({lev_pct:.1f}%) | Balance ${self.balance:.2f}"
                 )
                 del self.positions[symbol]
-                self.last_trade_times[symbol] = current_time
 
     def execute_live_trade(self, signal, price, confidence, symbol=None, df=None):
         symbol = symbol or self.get_current_symbol()
@@ -1039,7 +1038,6 @@ class TradingService:
                         f"PnL ${pnl:.2f} ({lev_pct:.1f}%)"
                     )
                     del self.positions[symbol]
-                    self.last_trade_times[symbol] = current_time
                     self._sync_live_balance()
 
             elif position is None and signal == 0:
