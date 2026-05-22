@@ -201,11 +201,13 @@ function AuthScreen({ setToken, setError, error }) {
 
 /* ─────────────────────────── Compound Tracker ──────────────────────────── */
 
-function CompoundTracker({ compound, balance, dynLeverage, maxLeverage }) {
+function CompoundTracker({ compound, balance, dynLeverage, maxLeverage, regime, ddScale }) {
   const roi = compound?.avg_trade_roi_pct ?? 0
   const roiColor = roi >= 5 ? '#00d4aa' : roi >= 2 ? '#f5a623' : roi >= 0 ? '#e8eaf0' : '#ff4444'
   const levUsed = dynLeverage || maxLeverage
   const levPct = maxLeverage ? Math.round((levUsed / maxLeverage) * 100) : 100
+  const regimeColor = regime === 'bull' ? '#00d4aa' : regime === 'bear' ? '#ff4444' : '#f5a623'
+  const regimeLabel = regime === 'bull' ? '↑ BULL' : regime === 'bear' ? '↓ BEAR' : '→ SIDEWAYS'
 
   const milestones = [
     { label: '$10K',  trades: compound?.trades_to_10k,  days: compound?.days_to_10k,  target: 10_000 },
@@ -238,11 +240,15 @@ function CompoundTracker({ compound, balance, dynLeverage, maxLeverage }) {
         <div style={{ fontSize: 42, fontWeight: 900, color: roiColor, lineHeight: 1 }}>
           {roi >= 0 ? '+' : ''}{roi.toFixed(2)}%
         </div>
-        <div style={{ fontSize: 12, color: '#4a5060', marginTop: 6, display: 'flex', justifyContent: 'center', gap: 12 }}>
+        <div style={{ fontSize: 12, color: '#4a5060', marginTop: 6, display: 'flex', justifyContent: 'center', gap: 12, flexWrap: 'wrap' }}>
           <span>{compound?.trades_per_day?.toFixed(1) || '—'} trades/day</span>
           {levUsed && <span style={{ color: levPct >= 90 ? '#00d4aa' : levPct >= 70 ? '#f5a623' : '#8b95a5' }}>
             last entry: {levUsed}x lev ({levPct}% of max)
           </span>}
+          {regime && <span style={{ color: regimeColor, fontWeight: 700 }}>{regimeLabel}</span>}
+          {ddScale != null && ddScale < 1.0 && (
+            <span style={{ color: '#ff8800' }}>⚠ {Math.round(ddScale * 100)}% size (DD recovery)</span>
+          )}
         </div>
       </div>
 
@@ -376,6 +382,28 @@ function DashboardPage({ botStatus, api, fetchBotStatus, setError, setSuccess })
             </span>
           </div>
         )}
+
+        {/* Peak balance + DD recovery scale */}
+        {botStatus?.peak_balance != null && (
+          <div style={{ marginTop: 8, padding: '10px 12px', background: '#0f1318', borderRadius: 10, border: '1px solid rgba(255,255,255,0.07)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 13, color: '#8b95a5' }}>Peak Balance</span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: '#00d4aa' }}>
+              ${botStatus.peak_balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+          </div>
+        )}
+        {(() => {
+          const scale = botStatus?.dd_recovery_scale
+          if (scale == null) return null
+          const scaleColor = scale >= 1.0 ? '#00d4aa' : scale >= 0.75 ? '#f5a623' : scale >= 0.50 ? '#ff8800' : '#ff4444'
+          const scaleLabel = scale >= 1.0 ? 'Full Size' : scale >= 0.75 ? '75% (Mild DD)' : scale >= 0.50 ? '50% (Moderate DD)' : '25% (Severe DD)'
+          return (
+            <div style={{ marginTop: 8, padding: '10px 12px', background: '#0f1318', borderRadius: 10, border: `1px solid ${scale < 1.0 ? 'rgba(255,136,0,0.25)' : 'rgba(255,255,255,0.07)'}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 13, color: '#8b95a5' }}>Position Scale</span>
+              <span style={{ fontSize: 14, fontWeight: 700, color: scaleColor }}>{scaleLabel}</span>
+            </div>
+          )
+        })()}
         {(() => {
           const closed = (botStatus?.recent_trades || []).filter(t => t.type === 'close' && t.pnl !== undefined)
           if (closed.length < 2) return null
@@ -397,7 +425,7 @@ function DashboardPage({ botStatus, api, fetchBotStatus, setError, setSuccess })
 
       {/* Compound Tracker */}
       {botStatus?.compound && (
-        <CompoundTracker compound={botStatus.compound} balance={botStatus.balance} dynLeverage={botStatus.last_dynamic_leverage} maxLeverage={botStatus.leverage} />
+        <CompoundTracker compound={botStatus.compound} balance={botStatus.balance} dynLeverage={botStatus.last_dynamic_leverage} maxLeverage={botStatus.leverage} regime={botStatus.market_regime} ddScale={botStatus.dd_recovery_scale} />
       )}
 
       {/* Coin Signals */}

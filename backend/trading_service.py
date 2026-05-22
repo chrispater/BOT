@@ -151,6 +151,7 @@ class TradingService:
         self._last_dynamic_leverage: int = leverage  # effective leverage used on last trade — set by _dynamic_leverage()
         self._trades_since_roi_save: int = 0
         self._last_exchange_total: float = None  # anchor for delta-based balance sync
+        self._peak_balance: float = starting_balance  # all-time high — used for max-DD and recovery scaling
 
         # Market regime state (re-evaluated every 10 cycles)
         self.market_regime = 'sideways'     # 'bull' | 'bear' | 'sideways'
@@ -645,12 +646,50 @@ class TradingService:
 
     # ── Risk helpers ────────────────────────────────────────────────────────
 
+    def _get_drawdown_recovery_scale(self) -> float:
+        """
+        Graduated position-size scale based on current drawdown from peak.
+        Shrinks bets as losses mount so the account can recover faster.
+          DD ≤  5% → 1.00× (no penalty)
+          DD ≤ 10% → 0.75×
+          DD ≤ 15% → 0.50×
+          DD ≤ 20% → 0.25×
+          DD >  20% → 0.00× (hard stop — handled by _is_drawdown_exceeded)
+        """
+        baseline = self._drawdown_baseline or self.starting_balance
+        dd = (baseline - self.balance) / max(baseline, 1)
+        if dd <= 0.05:
+            return 1.00
+        if dd <= 0.10:
+            return 0.75
+        if dd <= 0.15:
+            return 0.50
+        return 0.25
+
     def _is_drawdown_exceeded(self):
         baseline = self._drawdown_baseline or self.starting_balance
         drawdown = (baseline - self.balance) / baseline
         if drawdown > self.max_drawdown_pct:
             logger.warning(
                 f"User {self.user_id}: Drawdown {drawdown:.1%} > max {self.max_drawdown_pct:.1%} — halting entries"
+            )
+            return True
+        return False
+
+    def _check_performance_floor(self) -> bool:
+        """
+        Auto-pause new entries when the last 20 closed trades have < 40% win rate.
+        Requires 20 samples to avoid false triggers early in a session.
+        Returns True (= block entry) if performance is too poor to risk capital.
+        """
+        recent = [t for t in self.trades_history if t.get('type') == 'close' and 'pnl' in t][-20:]
+        if len(recent) < 20:
+            return False
+        wins = sum(1 for t in recent if t['pnl'] > 0)
+        wr = wins / len(recent)
+        if wr < 0.40:
+            logger.warning(
+                f"User {self.user_id}: Win rate {wr:.0%} over last 20 trades < 40% floor — pausing new entries"
             )
             return True
         return False
@@ -695,14 +734,14 @@ class TradingService:
         self._last_dynamic_leverage = result
         return result
 
-    def _calculate_margin(self, confidence: float = None) -> float:
+    def _calculate_margin(self, confidence: float = None, signal: int = None, df=None) -> float:
         """
-        Profit-tier compounding using Kelly fraction, scaled by signal confidence.
-          • Base capital risks at Kelly%.
-          • Profits above starting_balance risk at Kelly% × profit_risk_multiplier.
-          • Confidence multiplier: 0.5x at min_confidence threshold → 1.5x at 90%+ confidence.
-            No-brainer setups get 50% more margin; borderline trades get 50% less.
-        Hard cap: dynamic — min(max(risk_per_trade × 2, 10%), 75%) of current balance.
+        Profit-tier compounding using Kelly fraction, scaled by four independent multipliers:
+          1. Confidence: 0.5× at threshold → 1.5× at 90%+
+          2. Volatility (ATR-based): high vol → 0.5×, low vol → 1.5×
+          3. Market regime: trade with the macro trend, not against it
+          4. Drawdown recovery: shrink bets while clawing back losses
+        Hard cap: min(max(risk_per_trade × 2, 10%), 75%) of current balance.
         """
         k = self._kelly_fraction()
         profit = max(0.0, self.balance - self.starting_balance)
@@ -711,7 +750,7 @@ class TradingService:
         profit_margin = profit * k * self.profit_risk_multiplier
         margin = base_margin + profit_margin
 
-        # Confidence scaling — aggressive on no-brainers, modest on borderlines
+        # 1. Confidence scaling — aggressive on no-brainers, modest on borderlines
         conf_scale = 1.0
         if confidence is not None and not (confidence != confidence):  # guard NaN
             confidence = max(0.0, min(1.0, confidence))  # clamp to [0,1]
@@ -721,17 +760,31 @@ class TradingService:
             margin = margin * conf_scale
 
         # Cap respects the user's configured risk setting rather than a hardcoded 10%.
-        # Ceiling = risk_per_trade × 2.0 (headroom for profit-tier + confidence boost),
-        # with a 10% floor so conservative settings still have room and a 75% hard ceiling.
         risk_ceiling = min(max(self.risk_per_trade * 2.0, 0.10), 0.75)
         capped = min(margin, self.balance * risk_ceiling)
+
+        # 2. Volatility multiplier: reduce size in choppy/high-ATR conditions
+        vol_mult = self._get_volatility_multiplier(df) if df is not None else 1.0
+
+        # 3. Regime multiplier: size with the macro trend, penalise counter-trend trades
+        regime_mult = self._get_regime_multiplier(signal) if signal is not None else 1.0
+
+        # 4. Drawdown recovery scale: shrink position as losses grow
+        dd_scale = self._get_drawdown_recovery_scale()
+
+        final = capped * vol_mult * regime_mult * dd_scale
+
+        # Track peak balance for drawdown and compound projection accuracy
+        self._peak_balance = max(self._peak_balance, self.balance)
+
         conf_str = f"{confidence:.2f}" if confidence is not None else "n/a"
         logger.info(
             f"User {self.user_id}: [MARGIN] base=${base_cap:.2f} k={k*100:.1f}% | "
             f"profit_tier=${profit:.2f}×{self.profit_risk_multiplier} | "
-            f"conf={conf_str} scale={conf_scale:.2f} risk_ceil={risk_ceiling*100:.0f}% → ${capped:.2f}"
+            f"conf={conf_str} scale={conf_scale:.2f} risk_ceil={risk_ceiling*100:.0f}% | "
+            f"vol={vol_mult:.2f}× regime={regime_mult:.2f}× dd_scale={dd_scale:.2f}× → ${final:.2f}"
         )
-        return max(1.0, capped)
+        return max(1.0, final)
 
     def _get_volatility_multiplier(self, df) -> float:
         """Scale size inversely to ATR: high vol → 0.5×, low vol → 1.5×. Baseline 0.15% ATR/price."""
@@ -845,6 +898,8 @@ class TradingService:
             if self._trades_since_roi_save >= 5:
                 self._save_buffers()
                 self._trades_since_roi_save = 0
+        # Keep all-time peak in sync after every close
+        self._peak_balance = max(self._peak_balance, self.balance + pnl)
 
     def _compound_projection(self):
         """
@@ -981,6 +1036,9 @@ class TradingService:
             'compound': compound,
             # Dynamic sizing
             'last_dynamic_leverage': self._last_dynamic_leverage,
+            # Drawdown & recovery
+            'peak_balance': float(self._peak_balance),
+            'dd_recovery_scale': self._get_drawdown_recovery_scale(),
         }
 
     # ── Trade execution ─────────────────────────────────────────────────────
@@ -1027,10 +1085,12 @@ class TradingService:
         if position is None and signal != 0 and confidence >= self.min_confidence:
             if self._is_drawdown_exceeded():
                 return
+            if self._check_performance_floor():
+                return
             if not self._entry_filter(signal, df):
                 return
 
-            margin = self._calculate_margin(confidence)
+            margin = self._calculate_margin(confidence, signal=signal, df=df)
             if margin <= 0:
                 return
 
@@ -1121,6 +1181,8 @@ class TradingService:
                 if self._is_drawdown_exceeded():
                     logger.warning(f"User {self.user_id}: [{symbol}] Entry blocked — max drawdown limit reached")
                     return
+                if self._check_performance_floor():
+                    return
                 if not self._entry_filter(signal, df):
                     return  # _entry_filter already logs the reason
 
@@ -1138,7 +1200,7 @@ class TradingService:
                     logger.warning(f"User {self.user_id}: Balance fetch failed: {e}")
                     avail = self.balance
 
-                margin = self._calculate_margin(confidence)
+                margin = self._calculate_margin(confidence, signal=signal, df=df)
                 margin = min(margin, avail * 0.95)
 
                 dyn_lev = self._dynamic_leverage(confidence)
@@ -1341,8 +1403,8 @@ class TradingService:
                 adx_raw = row.get('adx', 25); adx_f = 25.0 if pd.isna(adx_raw) else float(adx_raw)
                 vol_raw = row.get('volume_ratio', 1.0); vol_f = 1.0 if pd.isna(vol_raw) else float(vol_raw)
                 if position is None and sig_val != 0 and conf >= self.min_confidence and adx_f >= self.adx_threshold and vol_f >= 0.65:
-                    # Margin formula mirrors live bot exactly: confidence scaling + risk_per_trade ceiling
-                    # (vol_mult removed — live bot doesn't apply it, so backtest must match)
+                    # Margin formula mirrors live bot: confidence scaling + risk_per_trade ceiling.
+                    # vol_mult/regime_mult omitted here — live bot applies them per-candle via _calculate_margin.
                     SLIPPAGE = 0.0005  # 5 bps round-trip slippage per leg (realistic for market orders)
                     profit = max(0, balance - balance_per_coin)
                     k = self.risk_per_trade  # Fixed fraction in backtest (Kelly needs live history)
