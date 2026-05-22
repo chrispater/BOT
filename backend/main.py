@@ -794,14 +794,18 @@ async def apply_optimizer_to_bot(run_id: int, user = Depends(get_current_user)):
         changed = user_bots[user_id].apply_optimizer_config(best_config)
         applied_to_live = True
 
-    # Also persist the config changes to DB settings
-    settings = get_user_settings(user_id) or {}
-    updatable = ['leverage', 'timeframe', 'risk_per_trade', 'stop_loss_pct',
-                 'take_profit_pct', 'trailing_stop_pct', 'min_confidence']
-    for k in updatable:
-        if k in best_config:
-            settings[k] = best_config[k]
-    update_user_settings(user_id, settings)
+    # Persist config changes to DB — must use kwargs, not a dict positional arg
+    update_user_settings(
+        user_id,
+        leverage=int(best_config['leverage'])                    if 'leverage'              in best_config else None,
+        timeframe=str(best_config['timeframe'])                  if 'timeframe'             in best_config else None,
+        risk_per_trade=float(best_config['risk_per_trade'])      if 'risk_per_trade'        in best_config else None,
+        stop_loss_pct=float(best_config['stop_loss_pct'])        if 'stop_loss_pct'         in best_config else None,
+        take_profit_pct=float(best_config['take_profit_pct'])    if 'take_profit_pct'       in best_config else None,
+        trailing_stop_pct=float(best_config['trailing_stop_pct']) if 'trailing_stop_pct'   in best_config else None,
+        min_confidence=float(best_config['min_confidence'])      if 'min_confidence'        in best_config else None,
+        adx_threshold=int(best_config['adx_threshold'])          if 'adx_threshold'         in best_config else None,
+    )
 
     return {
         "success": True,
