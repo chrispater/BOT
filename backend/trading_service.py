@@ -792,7 +792,7 @@ class TradingService:
             return 1.0
         atr = df['atr'].iloc[-1]
         price = df['close'].iloc[-1]
-        if price <= 0 or atr <= 0:
+        if pd.isna(atr) or pd.isna(price) or price <= 0 or atr <= 0:
             return 1.0
         return max(0.5, min(1.5, 0.0015 / (atr / price + 1e-10)))
 
