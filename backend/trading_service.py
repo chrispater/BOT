@@ -803,7 +803,7 @@ class TradingService:
         latest = df.iloc[-1]
         adx_raw = latest.get('adx', 25)
         vol_raw = latest.get('volume_ratio', 1.0)
-        adx = 25.0 if pd.isna(adx_raw) else float(adx_raw)
+        adx = 0.0  if pd.isna(adx_raw) else float(adx_raw)  # NaN → 0 blocks entry (safe default)
         vol = 1.0  if pd.isna(vol_raw) else float(vol_raw)
         if adx < self.adx_threshold:
             logger.info(f"User {self.user_id}: Entry blocked — ADX {adx:.1f} < {self.adx_threshold} (weak trend)")
@@ -1277,6 +1277,7 @@ class TradingService:
                         self.winning_trades += 1
                     self._record_trade_roi(pnl)
                     self.balance += pnl
+                    self._peak_balance = max(self._peak_balance, self.balance)
 
                     if pnl > 0:
                         self._add_trade_feedback(position['side'], pnl, df)
