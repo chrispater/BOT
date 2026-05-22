@@ -1340,7 +1340,7 @@ class TradingService:
                 # Entry quality filter — same gate as live trading
                 adx_raw = row.get('adx', 25); adx_f = 25.0 if pd.isna(adx_raw) else float(adx_raw)
                 vol_raw = row.get('volume_ratio', 1.0); vol_f = 1.0 if pd.isna(vol_raw) else float(vol_raw)
-                if position is None and sig_val != 0 and conf >= self.min_confidence and adx_f >= params.get('adx_threshold', self.adx_threshold) and vol_f >= 0.65:
+                if position is None and sig_val != 0 and conf >= self.min_confidence and adx_f >= self.adx_threshold and vol_f >= 0.65:
                     # Margin formula mirrors live bot exactly: confidence scaling + risk_per_trade ceiling
                     # (vol_mult removed — live bot doesn't apply it, so backtest must match)
                     SLIPPAGE = 0.0005  # 5 bps round-trip slippage per leg (realistic for market orders)

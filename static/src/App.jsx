@@ -1082,6 +1082,7 @@ function OptimizePage({ api, setError, setSuccess }) {
                       <span>TP: <strong style={{ color: '#00d4aa' }}>{(config.take_profit_pct * 100).toFixed(2)}%</strong></span>
                       <span>Trail: <strong style={{ color: '#e8eaf0' }}>{config.trailing_stop_pct != null ? `${(config.trailing_stop_pct * 100).toFixed(1)}%` : '—'}</strong></span>
                       <span>Conf: <strong style={{ color: '#e8eaf0' }}>{(config.min_confidence * 100).toFixed(0)}%</strong></span>
+                      <span>ADX: <strong style={{ color: '#e8eaf0' }}>{config.adx_threshold ?? '—'}</strong></span>
                       <span>Cooldown: <strong style={{ color: '#e8eaf0' }}>{formatCooldown(config.trade_cooldown)}</strong></span>
                       <span>Score: <strong style={{ color: '#4a9eff' }}>{config.score?.toFixed(3)}</strong></span>
                     </div>
@@ -1237,6 +1238,7 @@ function SettingsPage({ api, logout, setError, setSuccess, botStatus }) {
   const [maxDrawdownPct, setMaxDrawdownPct] = useState(20)
   const [retrainEvery, setRetrainEvery] = useState(50)
   const [profitRiskMultiplier, setProfitRiskMultiplier] = useState(1.5)
+  const [adxThreshold, setAdxThreshold] = useState(18)
 
   const [settingsLoading, setSettingsLoading] = useState(false)
 
@@ -1273,6 +1275,7 @@ function SettingsPage({ api, logout, setError, setSuccess, botStatus }) {
       setMaxDrawdownPct((d.max_drawdown_pct || 0.20) * 100)
       setRetrainEvery(d.retrain_every || 50)
       setProfitRiskMultiplier(d.profit_risk_multiplier || 1.5)
+      setAdxThreshold(d.adx_threshold || 18)
     } catch (e) {}
   }
 
@@ -1303,12 +1306,14 @@ function SettingsPage({ api, logout, setError, setSuccess, botStatus }) {
       drawdown:   Math.max(5, Math.min(50, maxDrawdownPct)),
       retrain:    Math.max(10, Math.min(500, Math.round(retrainEvery))),
       multiplier: Math.max(1.0, Math.min(3.0, profitRiskMultiplier)),
+      adx:        Math.max(5, Math.min(30, Math.round(adxThreshold))),
     }
 
     setRiskPerTrade(v.risk); setStopLossPct(v.sl); setTakeProfitPct(v.tp)
     setTradeCooldown(v.cooldown); setMinConfidence(v.conf)
     setTrailingStopPct(v.trail); setMaxDrawdownPct(v.drawdown)
     setRetrainEvery(v.retrain); setProfitRiskMultiplier(v.multiplier)
+    setAdxThreshold(v.adx)
 
     setSettingsLoading(true)
     try {
@@ -1327,6 +1332,7 @@ function SettingsPage({ api, logout, setError, setSuccess, botStatus }) {
         max_drawdown_pct: v.drawdown / 100,
         retrain_every: v.retrain,
         profit_risk_multiplier: v.multiplier,
+        adx_threshold: v.adx,
       })
       setSuccess('Settings saved')
     } catch (e) {
@@ -1481,6 +1487,14 @@ function SettingsPage({ api, logout, setError, setSuccess, botStatus }) {
           <label>Minimum Confidence (%)</label>
           <input type="number" value={minConfidence} onChange={e => setMinConfidence(Number(e.target.value))} min="50" max="95" step="1" disabled={isBotRunning} style={dis(isBotRunning)} />
           <p style={{ fontSize: 12, color: '#4a5060', marginTop: 4 }}>Only trade when ML signal confidence exceeds this (50%–95%)</p>
+        </div>
+
+        <div className="input-group">
+          <label>ADX Entry Threshold</label>
+          <input type="number" value={adxThreshold} onChange={e => setAdxThreshold(Number(e.target.value))} min="5" max="30" step="1" disabled={isBotRunning} style={dis(isBotRunning)} />
+          <p style={{ fontSize: 12, color: '#4a5060', marginTop: 4 }}>
+            Minimum ADX trend strength required to open a trade (5–30). Lower = more trades, higher = stronger trends only. Run Optimizer to find the best value per token.
+          </p>
         </div>
 
         <button className="btn btn-primary" onClick={saveSettings} disabled={settingsLoading || isBotRunning}>
