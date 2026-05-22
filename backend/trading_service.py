@@ -151,6 +151,7 @@ class TradingService:
         self._last_dynamic_leverage: int = leverage  # effective leverage used on last trade — set by _dynamic_leverage()
         self._trades_since_roi_save: int = 0
         self._last_exchange_total: float = None  # anchor for delta-based balance sync
+        self._peak_balance: float = starting_balance  # all-time high — used for max-DD and recovery scaling
 
         # Market regime state (re-evaluated every 10 cycles)
         self.market_regime = 'sideways'     # 'bull' | 'bear' | 'sideways'
@@ -645,6 +646,44 @@ class TradingService:
 
     # ── Risk helpers ────────────────────────────────────────────────────────
 
+    def _get_drawdown_recovery_scale(self) -> float:
+        """
+        Graduated position-size scale based on current drawdown from peak.
+        Shrinks bets as losses mount so the account can recover faster.
+          DD ≤  5% → 1.00× (no penalty)
+          DD ≤ 10% → 0.75×
+          DD ≤ 15% → 0.50×
+          DD ≤ 20% → 0.25×
+          DD >  20% → 0.00× (hard stop — handled by _is_drawdown_exceeded)
+        """
+        baseline = self._drawdown_baseline or self.starting_balance
+        dd = (baseline - self.balance) / max(baseline, 1)
+        if dd <= 0.05:
+            return 1.00
+        if dd <= 0.10:
+            return 0.75
+        if dd <= 0.15:
+            return 0.50
+        return 0.25
+
+    def _check_performance_floor(self) -> bool:
+        """
+        Auto-pause new entries when the last 20 closed trades have < 40% win rate.
+        Requires 20 samples to avoid false triggers early in a session.
+        Returns True (= block entry) if performance is too poor to risk capital.
+        """
+        recent = [t for t in self.trades_history if t.get('type') == 'close' and 'pnl' in t][-20:]
+        if len(recent) < 20:
+            return False
+        wins = sum(1 for t in recent if t['pnl'] > 0)
+        wr = wins / len(recent)
+        if wr < 0.40:
+            logger.warning(
+                f"User {self.user_id}: Win rate {wr:.0%} over last 20 trades < 40% floor — pausing new entries"
+            )
+            return True
+        return False
+
     def _is_drawdown_exceeded(self):
         baseline = self._drawdown_baseline or self.starting_balance
         drawdown = (baseline - self.balance) / baseline
@@ -725,13 +764,21 @@ class TradingService:
         # with a 10% floor so conservative settings still have room and a 75% hard ceiling.
         risk_ceiling = min(max(self.risk_per_trade * 2.0, 0.10), 0.75)
         capped = min(margin, self.balance * risk_ceiling)
+
+        # Drawdown recovery scale — shrinks bets proportionally as losses grow
+        dd_scale = self._get_drawdown_recovery_scale()
+        final = capped * dd_scale
+
+        # Track peak balance for compound projection accuracy
+        self._peak_balance = max(self._peak_balance, self.balance)
+
         conf_str = f"{confidence:.2f}" if confidence is not None else "n/a"
         logger.info(
             f"User {self.user_id}: [MARGIN] base=${base_cap:.2f} k={k*100:.1f}% | "
             f"profit_tier=${profit:.2f}×{self.profit_risk_multiplier} | "
-            f"conf={conf_str} scale={conf_scale:.2f} risk_ceil={risk_ceiling*100:.0f}% → ${capped:.2f}"
+            f"conf={conf_str} scale={conf_scale:.2f} dd_scale={dd_scale:.2f} → ${final:.2f}"
         )
-        return max(1.0, capped)
+        return max(1.0, final)
 
     def _get_volatility_multiplier(self, df) -> float:
         """Scale size inversely to ATR: high vol → 0.5×, low vol → 1.5×. Baseline 0.15% ATR/price."""
@@ -1027,6 +1074,8 @@ class TradingService:
         if position is None and signal != 0 and confidence >= self.min_confidence:
             if self._is_drawdown_exceeded():
                 return
+            if self._check_performance_floor():
+                return
             if not self._entry_filter(signal, df):
                 return
 
@@ -1079,6 +1128,7 @@ class TradingService:
                     self.winning_trades += 1
                 self._record_trade_roi(pnl)
                 self.balance += pnl
+                self._peak_balance = max(self._peak_balance, self.balance)
 
                 if pnl > 0:
                     self._add_trade_feedback(position['side'], pnl, df)
@@ -1120,6 +1170,8 @@ class TradingService:
             if position is None and signal != 0 and confidence >= self.min_confidence:
                 if self._is_drawdown_exceeded():
                     logger.warning(f"User {self.user_id}: [{symbol}] Entry blocked — max drawdown limit reached")
+                    return
+                if self._check_performance_floor():
                     return
                 if not self._entry_filter(signal, df):
                     return  # _entry_filter already logs the reason
@@ -1969,6 +2021,7 @@ class ParameterOptimizer:
                             'profit_risk_multiplier': params['profit_risk_multiplier'],
                             'trade_cooldown': params['trade_cooldown'],
                             'min_confidence': params['min_confidence'],
+                            'adx_threshold': params['adx_threshold'],
                             'total_return': round(result['total_return'], 2),
                             'win_rate': round(result['win_rate'], 2),
                             'total_trades': result['total_trades'],
