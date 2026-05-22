@@ -148,6 +148,7 @@ class TradingService:
         self._trade_roi_history: list = self._load_roi_history()  # persisted across restarts
         self._last_dynamic_leverage: int = leverage  # effective leverage used on last trade — set by _dynamic_leverage()
         self._trades_since_roi_save: int = 0
+        self._last_exchange_total: float = None  # anchor for delta-based balance sync
 
         # Market regime state (re-evaluated every 10 cycles)
         self.market_regime = 'sideways'     # 'bull' | 'bear' | 'sideways'
@@ -802,19 +803,30 @@ class TradingService:
         return 0.8
 
     def _sync_live_balance(self):
-        """Pull actual USDT balance from exchange after every live close."""
+        """Delta-based balance sync — applies only the change the exchange reports, not the
+        absolute total. This lets the user allocate a subset of their Blofin account (e.g.
+        $100 of a $503 account) and have the dashboard track just those funds."""
         if self.simulation_mode or self.exchange is None:
             return
         try:
             account = self.exchange.fetch_balance()
             total = float(account.get('USDT', {}).get('total', 0))
-            if total > 0:
-                if self._drawdown_baseline is None:
-                    self._drawdown_baseline = total
-                    logger.info(f"User {self.user_id}: Drawdown baseline set to ${total:.2f}")
+            if total <= 0:
+                return
+            if self._drawdown_baseline is None:
+                self._drawdown_baseline = self.balance
+                logger.info(f"User {self.user_id}: Drawdown baseline set to ${self.balance:.2f}")
+            if self._last_exchange_total is None:
+                # First sync after startup — anchor to exchange without changing tracked balance
+                self._last_exchange_total = total
+                logger.info(f"User {self.user_id}: Exchange anchored at ${total:.2f} | tracking ${self.balance:.2f}")
+                return
+            delta = total - self._last_exchange_total
+            if abs(delta) > 0.005:
                 old = self.balance
-                self.balance = total
-                logger.info(f"User {self.user_id}: Balance synced ${old:.2f} → ${total:.2f}")
+                self.balance = max(0.0, self.balance + delta)
+                self._last_exchange_total = total
+                logger.info(f"User {self.user_id}: Balance ${old:.2f} → ${self.balance:.2f} (Δ${delta:+.2f})")
         except Exception as e:
             logger.warning(f"User {self.user_id}: Balance sync failed: {e}")
 

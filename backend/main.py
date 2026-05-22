@@ -326,10 +326,17 @@ async def start_bot(user = Depends(get_current_user)):
             if any(x in err_msg.lower() for x in ['ip', 'whitelist', 'forbidden', '403', 'auth', 'sign']):
                 raise HTTPException(status_code=400, detail=f"Blofin API blocked — add this IP to your whitelist: {_ip}")
 
-    # Restore actual balance from last recorded performance so compounding
-    # continues correctly across restarts instead of resetting to starting_balance.
+    # Restore balance for compound continuity across restarts.
+    # If the user set starting_balance to less than half the DB value, treat it as a
+    # deliberate capital-allocation reset (e.g. $100 setting vs $503 in DB).
+    # Otherwise restore the DB value so compound growth is preserved.
     perf = get_latest_performance(user_id)
-    restored_balance = float(perf['balance']) if perf and perf.get('balance') else user_settings['starting_balance']
+    db_balance = float(perf['balance']) if perf and perf.get('balance') else None
+    cfg_balance = float(user_settings['starting_balance'])
+    if db_balance is None or cfg_balance < db_balance * 0.5 or cfg_balance > db_balance:
+        restored_balance = cfg_balance   # deliberate reset or allocation increase
+    else:
+        restored_balance = db_balance    # normal restart — preserve compound gains
 
     def on_trade(uid, symbol, side, trade_type, size, price, pnl, confidence, reason):
         try:
