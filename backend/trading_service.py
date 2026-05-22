@@ -756,10 +756,10 @@ class TradingService:
         adx = 25.0 if pd.isna(adx_raw) else float(adx_raw)
         vol = 1.0  if pd.isna(vol_raw) else float(vol_raw)
         if adx < 18:
-            logger.debug(f"User {self.user_id}: Entry blocked — ADX {adx:.1f} < 18 (weak trend)")
+            logger.info(f"User {self.user_id}: Entry blocked — ADX {adx:.1f} < 18 (weak trend)")
             return False
         if vol < 0.65:
-            logger.debug(f"User {self.user_id}: Entry blocked — volume_ratio {vol:.2f} < 0.65 (thin volume)")
+            logger.info(f"User {self.user_id}: Entry blocked — volume_ratio {vol:.2f} < 0.65 (thin volume)")
             return False
         return True
 
@@ -1090,7 +1090,8 @@ class TradingService:
         current_time = time.time()
         cooldown_remaining = self.trade_cooldown - (current_time - self.last_trade_times.get(symbol, 0))
         if cooldown_remaining > 0:
-            logger.debug(f"User {self.user_id}: [{symbol}] Entry blocked — cooldown {cooldown_remaining:.0f}s remaining")
+            if confidence >= self.min_confidence:
+                logger.info(f"User {self.user_id}: [{symbol}] Signal skipped (conf={confidence:.1%}) — cooldown {cooldown_remaining:.0f}s remaining")
             return
 
         try:
