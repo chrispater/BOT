@@ -84,6 +84,7 @@ class TradingSettings(BaseModel):
     max_drawdown_pct: Optional[float] = None
     retrain_every: Optional[int] = None
     profit_risk_multiplier: Optional[float] = None
+    adx_threshold: Optional[int] = None
 
 VALID_TIMEFRAMES = ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '1d']
 
@@ -275,6 +276,7 @@ async def update_settings(settings: TradingSettings, user = Depends(get_current_
         max_drawdown_pct=settings.max_drawdown_pct,
         retrain_every=settings.retrain_every,
         profit_risk_multiplier=settings.profit_risk_multiplier,
+        adx_threshold=settings.adx_threshold,
     )
     return {"status": "settings updated", **updated}
 
@@ -375,6 +377,7 @@ async def start_bot(user = Depends(get_current_user)):
         max_drawdown_pct=user_settings.get('max_drawdown_pct', 0.20),
         retrain_every=user_settings.get('retrain_every', 50),
         profit_risk_multiplier=user_settings.get('profit_risk_multiplier', 1.5),
+        adx_threshold=user_settings.get('adx_threshold', 18),
         on_trade=on_trade,
         on_signal=on_signal,
         on_performance=on_performance
@@ -545,6 +548,7 @@ async def run_backtest(user = Depends(get_current_user)):
         max_drawdown_pct=user_settings.get('max_drawdown_pct', 0.20),
         retrain_every=user_settings.get('retrain_every', 50),
         profit_risk_multiplier=user_settings.get('profit_risk_multiplier', 1.5),
+        adx_threshold=user_settings.get('adx_threshold', 18),
     )
 
     # FIX: run_backtest involves ML training (30-120 seconds). Running it directly

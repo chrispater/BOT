@@ -97,6 +97,7 @@ class TradingService:
                  trade_cooldown=300, min_confidence=0.65, timeframe='5m',
                  trailing_stop_pct=0.01, max_drawdown_pct=0.20,
                  retrain_every=50, profit_risk_multiplier=1.5,
+                 adx_threshold=18,
                  on_trade=None, on_signal=None, on_performance=None):
 
         self.user_id = user_id
@@ -135,6 +136,7 @@ class TradingService:
         self.max_drawdown_pct = max_drawdown_pct
         self.retrain_every = retrain_every
         self.profit_risk_multiplier = profit_risk_multiplier
+        self.adx_threshold = max(5, int(adx_threshold))
 
         self._model_file = os.path.join(_MODEL_DIR, f'model_u{user_id}.pkl')
         self._buffer_file = os.path.join(_MODEL_DIR, f'buffer_u{user_id}.pkl')
@@ -745,7 +747,7 @@ class TradingService:
         """
         Pre-entry quality gate — thresholds match the backtest filter exactly so
         optimizer results translate 1:1 to live performance.
-          • ADX ≥ 18  — meaningful directional momentum (matches backtest)
+          • ADX ≥ adx_threshold — meaningful directional momentum (matches backtest)
           • volume_ratio ≥ 0.65 — solid participation (matches backtest)
         Returns True = entry allowed.
         """
@@ -756,8 +758,8 @@ class TradingService:
         vol_raw = latest.get('volume_ratio', 1.0)
         adx = 25.0 if pd.isna(adx_raw) else float(adx_raw)
         vol = 1.0  if pd.isna(vol_raw) else float(vol_raw)
-        if adx < 18:
-            logger.info(f"User {self.user_id}: Entry blocked — ADX {adx:.1f} < 18 (weak trend)")
+        if adx < self.adx_threshold:
+            logger.info(f"User {self.user_id}: Entry blocked — ADX {adx:.1f} < {self.adx_threshold} (weak trend)")
             return False
         if vol < 0.65:
             logger.info(f"User {self.user_id}: Entry blocked — volume_ratio {vol:.2f} < 0.65 (thin volume)")
@@ -921,6 +923,9 @@ class TradingService:
         if 'min_confidence' in config:
             self.min_confidence = float(config['min_confidence'])
             changed.append(f"min_conf={self.min_confidence:.0%}")
+        if 'adx_threshold' in config:
+            self.adx_threshold = max(5, int(config['adx_threshold']))
+            changed.append(f"adx={self.adx_threshold}")
         logger.info(f"User {self.user_id}: [OPTIMIZER] Config applied: {', '.join(changed) or 'no changes'}")
         return changed
 
@@ -955,6 +960,7 @@ class TradingService:
             'max_drawdown_pct': self.max_drawdown_pct,
             'trade_cooldown': self.trade_cooldown,
             'min_confidence': self.min_confidence,
+            'adx_threshold': self.adx_threshold,
             'market_regime': self.market_regime,
             'model_type': 'LGBM' if LGBM_AVAILABLE else 'XGB' if XGB_AVAILABLE else 'SVM',
             'signal_engine_active': SIGNAL_ENGINE_AVAILABLE,
@@ -1334,7 +1340,7 @@ class TradingService:
                 # Entry quality filter — same gate as live trading
                 adx_raw = row.get('adx', 25); adx_f = 25.0 if pd.isna(adx_raw) else float(adx_raw)
                 vol_raw = row.get('volume_ratio', 1.0); vol_f = 1.0 if pd.isna(vol_raw) else float(vol_raw)
-                if position is None and sig_val != 0 and conf >= self.min_confidence and adx_f >= 18 and vol_f >= 0.65:
+                if position is None and sig_val != 0 and conf >= self.min_confidence and adx_f >= params.get('adx_threshold', self.adx_threshold) and vol_f >= 0.65:
                     # Margin formula mirrors live bot exactly: confidence scaling + risk_per_trade ceiling
                     # (vol_mult removed — live bot doesn't apply it, so backtest must match)
                     SLIPPAGE = 0.0005  # 5 bps round-trip slippage per leg (realistic for market orders)
@@ -1607,6 +1613,7 @@ class ParameterOptimizer:
     TIMEFRAMES = ['5m', '15m', '30m', '1h', '2h', '4h']
     TRAILING_STOPS = [0.005, 0.008, 0.010, 0.015, 0.020]
     PROFIT_MULTIPLIERS = [1.0, 1.25, 1.5, 2.0, 2.5]
+    ADX_THRESHOLDS = [8, 10, 13, 16, 18, 20, 23, 25]  # per-token optimized entry trend filter
 
     MIN_TRADES = 20                  # raised from 15 — more robust signal requirement
     SAMPLES_PER_TIMEFRAME = 120      # raised from 100
@@ -1639,6 +1646,7 @@ class ParameterOptimizer:
                 'min_confidence': random.choice(self.CONFIDENCES),
                 'trailing_stop_pct': random.choice(self.TRAILING_STOPS),
                 'profit_risk_multiplier': random.choice(self.PROFIT_MULTIPLIERS),
+                'adx_threshold': random.choice(self.ADX_THRESHOLDS),
             }
             # Enforce minimum 1.5:1 reward:risk — required for sustainable compounding
             if params['take_profit_pct'] / params['stop_loss_pct'] >= 1.5:
@@ -1772,7 +1780,7 @@ class ParameterOptimizer:
                     adx_o = row.get('adx', 25); adx_o = 25.0 if pd.isna(adx_o) else float(adx_o)
                     vol_o = row.get('volume_ratio', 1.0); vol_o = 1.0 if pd.isna(vol_o) else float(vol_o)
                     SLIP = 0.0005  # 5 bps slippage per leg
-                    if position is None and sig_val != 0 and conf >= params['min_confidence'] and adx_o >= 18 and vol_o >= 0.65:
+                    if position is None and sig_val != 0 and conf >= params['min_confidence'] and adx_o >= params['adx_threshold'] and vol_o >= 0.65:
                         # Confidence-scaled margin (mirrors live _calculate_margin)
                         conf_rng_o = max(0.01, 1.0 - params['min_confidence'])
                         c_scale_o = max(0.5, min(1.5, 0.5 + (conf - params['min_confidence']) / conf_rng_o))
