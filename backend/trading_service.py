@@ -576,6 +576,18 @@ class TradingService:
         X_all = np.vstack(X_parts)
         y_all = np.concatenate(y_parts)
 
+        # Refuse to train on a single class. In a one-sided trend the label set can
+        # collapse to all-long (or all-short); a one-class classifier then predicts
+        # that direction at a bogus 1.0 confidence on EVERY cycle (and SVC.fit even
+        # raises). Skip instead — keep the prior model, or stay FLAT until both
+        # directions reappear.
+        if len(np.unique(y_all)) < 2:
+            logger.warning(
+                f"User {self.user_id}: Training set is single-class "
+                f"({'long' if y_all[0] == 1 else 'short'} only) — skipping train to avoid a degenerate model"
+            )
+            return False
+
         if len(X_parts) > 1:
             logger.info(f"User {self.user_id}: Geometric training — {len(X_fresh)} fresh + {len(X_all)-len(X_fresh)} buffered = {len(X_all)} total")
 
@@ -1151,6 +1163,12 @@ class TradingService:
         if 'adx_threshold' in config:
             self.adx_threshold = max(5, int(config['adx_threshold']))
             changed.append(f"adx={self.adx_threshold}")
+        if 'profit_risk_multiplier' in config:
+            self.profit_risk_multiplier = float(config['profit_risk_multiplier'])
+            changed.append(f"prm={self.profit_risk_multiplier}")
+        if 'trade_cooldown' in config:
+            self.trade_cooldown = int(config['trade_cooldown'])
+            changed.append(f"cooldown={self.trade_cooldown}s")
         logger.info(f"User {self.user_id}: [OPTIMIZER] Config applied: {', '.join(changed) or 'no changes'}")
         return changed
 

@@ -680,14 +680,20 @@ def _auto_config_beats_current(optimizer, best: dict, current_config: dict) -> b
 
 
 def run_auto_optimization_thread(user_id: int, selected_coins: list, starting_balance: float,
-                                 current_config: dict,
+                                 current_config: dict, target_bot,
                                  api_key: str = None, api_secret: str = None, api_password: str = None):
     """Background self-tuning run. Re-optimizes, then queues the winner for hot-apply
     (applied on the next flat cycle) and persists it, but only if it materially beats
-    the bot's current config. Reuses the same job/history plumbing as manual runs."""
+    the bot's current config. Reuses the same job/history plumbing as manual runs.
+
+    target_bot is the exact TradingService instance that launched this run. Optimize
+    can take minutes; if the user stops/restarts the bot meanwhile, user_bots[user_id]
+    becomes a DIFFERENT instance. We only ever mutate/reset target_bot, and only while
+    it's still the live instance — never a stale or replacement bot."""
     import time as _t
     import traceback
-    bot = user_bots.get(user_id)
+    def _still_live():
+        return user_bots.get(user_id) is target_bot
     try:
         if not try_start_optimization_job(user_id):
             print(f"[AUTO-OPT] User {user_id}: optimization job busy — skipping this round", flush=True)
@@ -715,14 +721,13 @@ def run_auto_optimization_thread(user_id: int, selected_coins: list, starting_ba
             best_win_rate=float(best.get('win_rate', 0) or 0) if best else 0,
         )
 
-        bot_now = user_bots.get(user_id)
-        if best and bot_now and _auto_config_beats_current(optimizer, best, current_config):
+        if best and _still_live() and _auto_config_beats_current(optimizer, best, current_config):
             cfg = {k: best[k] for k in (
                 'leverage', 'timeframe', 'risk_per_trade', 'stop_loss_pct', 'take_profit_pct',
                 'trailing_stop_pct', 'min_confidence', 'adx_threshold',
                 'profit_risk_multiplier', 'trade_cooldown',
             ) if k in best}
-            bot_now._pending_auto_config = cfg   # hot-applied on next flat cycle
+            target_bot._pending_auto_config = cfg   # hot-applied on next flat cycle
             update_user_settings(
                 user_id,
                 leverage=int(cfg['leverage']) if 'leverage' in cfg else None,
@@ -733,6 +738,8 @@ def run_auto_optimization_thread(user_id: int, selected_coins: list, starting_ba
                 trailing_stop_pct=float(cfg['trailing_stop_pct']) if 'trailing_stop_pct' in cfg else None,
                 min_confidence=float(cfg['min_confidence']) if 'min_confidence' in cfg else None,
                 adx_threshold=int(cfg['adx_threshold']) if 'adx_threshold' in cfg else None,
+                profit_risk_multiplier=float(cfg['profit_risk_multiplier']) if 'profit_risk_multiplier' in cfg else None,
+                trade_cooldown=int(cfg['trade_cooldown']) if 'trade_cooldown' in cfg else None,
             )
             print(f"[AUTO-OPT] User {user_id}: new config queued + persisted: {cfg}", flush=True)
         else:
@@ -745,11 +752,13 @@ def run_auto_optimization_thread(user_id: int, selected_coins: list, starting_ba
         except Exception:
             pass
     finally:
-        bot_done = user_bots.get(user_id)
-        if bot_done:
-            bot_done._auto_opt_in_progress = False
-            bot_done._last_auto_opt = _t.time()
-            bot_done._auto_opt_regime = bot_done.market_regime
+        # Only reset the instance that launched this run, and only if it's still
+        # live. A stopped/replaced bot starts fresh from __init__, so we must not
+        # clobber a new instance's timers here.
+        if _still_live():
+            target_bot._auto_opt_in_progress = False
+            target_bot._last_auto_opt = _t.time()
+            target_bot._auto_opt_regime = target_bot.market_regime
 
 
 @app.post("/api/optimize/start")
@@ -1025,7 +1034,7 @@ def _launch_auto_optimize(user_id: int, bot):
         thread = threading.Thread(
             target=run_auto_optimization_thread,
             args=(user_id, bot.selected_coins, bot.starting_balance,
-                  bot.current_config_snapshot(), api_key, api_secret, api_password),
+                  bot.current_config_snapshot(), bot, api_key, api_secret, api_password),
         )
         thread.daemon = False
         thread.start()
