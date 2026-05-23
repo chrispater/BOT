@@ -695,6 +695,33 @@ class TradingService:
             return True
         return False
 
+    def _get_adaptive_scale(self) -> float:
+        """
+        Real-time aggression throttle from recent realized performance. Leans the
+        bot in when its recent track record is strong and pulls back when it
+        degrades, so it stays in an ideal compounding posture as conditions shift —
+        the "lean into what's working" half of the loop (drawdown scale handles the
+        capital-protection half). Bounded [0.75, 1.30]; neutral until enough data.
+        """
+        closes = [t for t in self.trades_history if t.get('type') == 'close' and 'pnl' in t][-20:]
+        if len(closes) < 8:
+            return 1.0  # too few samples — stay neutral
+        wins = sum(1 for t in closes if t['pnl'] > 0)
+        wr = wins / len(closes)
+        recent_roi = self._trade_roi_history[-20:]
+        avg_roi = sum(recent_roi) / len(recent_roi) if recent_roi else 0.0
+
+        scale = 1.0
+        if   wr >= 0.65: scale += 0.20
+        elif wr >= 0.55: scale += 0.10
+        elif wr <  0.45: scale -= 0.15
+        elif wr <  0.50: scale -= 0.08
+
+        if   avg_roi > 0.01: scale += 0.10
+        elif avg_roi < 0.0:  scale -= 0.10
+
+        return max(0.75, min(1.30, scale))
+
     def _is_drawdown_exceeded(self):
         baseline = self._drawdown_baseline or self.starting_balance
         drawdown = (baseline - self.balance) / baseline
@@ -770,15 +797,18 @@ class TradingService:
             conf_scale = max(0.5, min(1.5, conf_scale))
             margin = margin * conf_scale
 
-        # Cap respects the user's configured risk setting rather than a hardcoded 10%.
-        # Ceiling = risk_per_trade × 2.0 (headroom for profit-tier + confidence boost),
-        # with a 10% floor so conservative settings still have room and a 75% hard ceiling.
-        risk_ceiling = min(max(self.risk_per_trade * 2.0, 0.10), 0.75)
-        capped = min(margin, self.balance * risk_ceiling)
-
-        # Drawdown recovery scale — shrinks bets proportionally as losses grow
+        # Real-time posture: drawdown scale protects capital (≤1×), adaptive scale
+        # leans into a strong recent track record (up to 1.3×). Applied before the
+        # hard ceiling so the boost can never push risk past the configured cap.
         dd_scale = self._get_drawdown_recovery_scale()
-        final = capped * dd_scale
+        adaptive_scale = self._get_adaptive_scale()
+        margin = margin * dd_scale * adaptive_scale
+
+        # Hard ceiling LAST so no upstream multiplier can exceed it. Respects the
+        # user's risk setting: ceiling = risk_per_trade × 2.0 (headroom for
+        # profit-tier + confidence + lean-in), 10% floor, 75% hard ceiling.
+        risk_ceiling = min(max(self.risk_per_trade * 2.0, 0.10), 0.75)
+        final = min(margin, self.balance * risk_ceiling)
 
         # Track peak balance for compound projection accuracy
         self._peak_balance = max(self._peak_balance, self.balance)
@@ -787,7 +817,7 @@ class TradingService:
         logger.info(
             f"User {self.user_id}: [MARGIN] base=${base_cap:.2f} k={k*100:.1f}% | "
             f"profit_tier=${profit:.2f}×{self.profit_risk_multiplier} | "
-            f"conf={conf_str} scale={conf_scale:.2f} dd_scale={dd_scale:.2f} → ${final:.2f}"
+            f"conf={conf_str} scale={conf_scale:.2f} dd={dd_scale:.2f} adapt={adaptive_scale:.2f} → ${final:.2f}"
         )
         return max(1.0, final)
 
