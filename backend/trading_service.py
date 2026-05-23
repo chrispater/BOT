@@ -390,13 +390,19 @@ class TradingService:
         df.loc[(df['future_return'] > threshold) & (df['future_min_pct'] > -sl), 'signal'] = 1
         df.loc[(df['future_return'] < -threshold) & (df['future_max_pct'] < sl), 'signal'] = -1
 
-        # Fallback: if clean labeling is too sparse, use plain threshold so the
-        # model always has enough examples to train.
+        # Fallback: if clean labeling is too sparse OVERALL, or one direction is
+        # starved, revert to plain threshold. In trending markets clean SHORT
+        # labels (price drops without ever popping above the stop) are far rarer
+        # than LONG labels, so the model never learns a real short boundary and
+        # the bot effectively trades long-only. Falling back when either side is
+        # thin keeps both directions represented before SMOTE rebalancing.
         labeled = int((df['signal'] != 0).sum())
-        if labeled < 50:
+        n_long = int((df['signal'] == 1).sum())
+        n_short = int((df['signal'] == -1).sum())
+        if labeled < 50 or min(n_long, n_short) < 15:
             logger.warning(
-                f"User {self.user_id}: Clean labels sparse ({labeled} rows) — "
-                f"falling back to plain threshold labeling"
+                f"User {self.user_id}: Clean labels imbalanced "
+                f"(long={n_long} short={n_short}) — falling back to plain threshold labeling"
             )
             df['signal'] = 0
             df.loc[df['future_return'] > threshold, 'signal'] = 1
@@ -497,8 +503,13 @@ class TradingService:
             row = X_entry.iloc[-1].values
             label = 1 if side == 'long' else -1
             self._feedback_buffer.append({'X': row, 'y': label, 'features': feat})
-            if len(self._feedback_buffer) > 500:
-                self._feedback_buffer = self._feedback_buffer[-500:]
+            # Keep the buffer balanced per-side. Feedback only records WINNING
+            # trades, so during a long bull run it would fill with longs and
+            # permanently bias the model long — even after the market turns.
+            # Capping each side independently prevents that runaway skew.
+            longs  = [f for f in self._feedback_buffer if f['y'] == 1][-250:]
+            shorts = [f for f in self._feedback_buffer if f['y'] == -1][-250:]
+            self._feedback_buffer = longs + shorts
         except Exception:
             pass
 
@@ -850,6 +861,132 @@ class TradingService:
         if r == 'bear':
             return 1.2 if signal == -1 else 0.4
         return 0.8
+
+    def analyze_market_direction(self, coins=None):
+        """
+        Multi-timeframe directional bias scan for the chosen tokens. Read-only and
+        ML-free — a fast "where is each token heading" overview to guide the
+        optimize → backtest → live workflow and reveal long vs short opportunities.
+
+        Each token is sampled on three horizons (15m, 1h, 4h, macro weighted
+        highest). Per horizon we vote on trend (price vs EMA50 + EMA50 slope) and
+        momentum (RSI + MACD histogram), and read ADX for trend strength. Voting
+        confluence across horizons yields a directional label and a trade bias.
+        """
+        coins = coins or self.selected_coins or ['BTC/USDT:USDT']
+        timeframes = [('15m', 1.0), ('1h', 1.5), ('4h', 2.0)]
+
+        # Refresh macro regime so the summary reflects current conditions.
+        try:
+            self.market_regime = self._get_market_regime()
+        except Exception:
+            pass
+
+        results = []
+        for symbol in coins:
+            tf_views, adx_vals = [], []
+            weighted_score = weight_total = 0.0
+
+            for tf, weight in timeframes:
+                try:
+                    df = self.fetch_ohlcv(symbol=symbol, limit=250, timeframe=tf)
+                    if df is None or len(df) < 60:
+                        continue
+                    close = df['close'].values.astype(float)
+                    high  = df['high'].values.astype(float)
+                    low   = df['low'].values.astype(float)
+
+                    ema50 = talib.EMA(close, timeperiod=50)
+                    rsi   = talib.RSI(close, timeperiod=14)
+                    adx   = talib.ADX(high, low, close, timeperiod=14)
+                    _, _, macd_hist = talib.MACD(close)
+
+                    price    = close[-1]
+                    ema_now  = ema50[-1]
+                    ema_prev = ema50[-10] if not np.isnan(ema50[-10]) else ema_now
+                    price_vs_ema = (price - ema_now) / ema_now if ema_now else 0.0
+                    ema_slope    = (ema_now - ema_prev) / ema_prev if ema_prev else 0.0
+                    rsi_now  = float(rsi[-1]) if not np.isnan(rsi[-1]) else 50.0
+                    adx_now  = float(adx[-1]) if not np.isnan(adx[-1]) else 0.0
+                    hist_now = float(macd_hist[-1]) if not np.isnan(macd_hist[-1]) else 0.0
+
+                    score = 0
+                    if price_vs_ema >  0.003: score += 1
+                    elif price_vs_ema < -0.003: score -= 1
+                    if ema_slope >  0.0005: score += 1
+                    elif ema_slope < -0.0005: score -= 1
+                    if rsi_now > 55: score += 1
+                    elif rsi_now < 45: score -= 1
+                    if hist_now > 0: score += 1
+                    elif hist_now < 0: score -= 1
+                    tf_dir = score / 4.0
+
+                    adx_vals.append(adx_now)
+                    weighted_score += tf_dir * weight
+                    weight_total   += weight
+                    tf_views.append({
+                        'timeframe': tf,
+                        'direction': 'bullish' if tf_dir > 0.1 else ('bearish' if tf_dir < -0.1 else 'neutral'),
+                        'score': round(tf_dir, 2),
+                        'rsi': round(rsi_now, 1),
+                        'adx': round(adx_now, 1),
+                        'price_vs_ema50_pct': round(price_vs_ema * 100, 2),
+                    })
+                except Exception as e:
+                    logger.debug(f"User {self.user_id}: Direction scan {symbol} {tf} failed: {e}")
+                    continue
+
+            if weight_total == 0:
+                results.append({'symbol': symbol, 'error': 'no_data'})
+                continue
+
+            conviction = weighted_score / weight_total
+            avg_adx = sum(adx_vals) / len(adx_vals) if adx_vals else 0.0
+            nonzero = [1 if v['score'] > 0.1 else (-1 if v['score'] < -0.1 else 0) for v in tf_views]
+            active = [d for d in nonzero if d != 0]
+            aligned = bool(active) and len(set(active)) == 1
+
+            if conviction >= 0.5:    label = 'STRONG BULLISH'
+            elif conviction >= 0.15: label = 'BULLISH'
+            elif conviction <= -0.5: label = 'STRONG BEARISH'
+            elif conviction <= -0.15: label = 'BEARISH'
+            else:                    label = 'NEUTRAL / RANGE'
+
+            trend_ok = avg_adx >= self.adx_threshold
+            if not trend_ok or label.startswith('NEUTRAL'):
+                bias, tradeable = 'range — wait / mean-revert', False
+            elif conviction > 0:
+                bias, tradeable = 'long-favored', True
+            else:
+                bias, tradeable = 'short-favored', True
+
+            results.append({
+                'symbol': symbol,
+                'label': label,
+                'conviction': round(conviction, 3),
+                'avg_adx': round(avg_adx, 1),
+                'aligned': aligned,
+                'trend_strength': 'strong' if avg_adx >= 25 else ('moderate' if trend_ok else 'weak'),
+                'recommended_bias': bias,
+                'tradeable': tradeable,
+                'timeframes': tf_views,
+            })
+
+        results.sort(key=lambda r: abs(r.get('conviction', 0)), reverse=True)
+        longs  = sum(1 for r in results if r.get('conviction', 0) > 0.15)
+        shorts = sum(1 for r in results if r.get('conviction', 0) < -0.15)
+        return {
+            'scanned_at': datetime.now().isoformat(),
+            'market_regime': self.market_regime,
+            'adx_threshold': self.adx_threshold,
+            'summary': {
+                'tokens': len(results),
+                'bullish': longs,
+                'bearish': shorts,
+                'neutral': len(results) - longs - shorts,
+            },
+            'tokens': results,
+        }
 
     def _sync_live_balance(self):
         """Delta-based balance sync — applies only the change the exchange reports, not the

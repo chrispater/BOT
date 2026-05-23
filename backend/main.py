@@ -558,6 +558,40 @@ async def run_backtest(user = Depends(get_current_user)):
     result = await loop.run_in_executor(None, bot.run_backtest, 60)
     return result
 
+@app.get("/api/market/direction")
+async def scan_market_direction(user = Depends(get_current_user)):
+    """Multi-timeframe directional bias scan for the user's selected tokens.
+    Read-only — no ML training — so it returns in a few seconds."""
+    user_id = user['user_id']
+    user_settings = get_user_settings(user_id)
+
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT encrypted_api_key, encrypted_api_secret, encrypted_api_password "
+            "FROM users WHERE id = %s", (user_id,)
+        )
+        cred_row = cur.fetchone()
+    api_key      = decrypt_credential(cred_row['encrypted_api_key'])      if cred_row and cred_row['encrypted_api_key']      else None
+    api_secret   = decrypt_credential(cred_row['encrypted_api_secret'])   if cred_row and cred_row['encrypted_api_secret']   else None
+    api_password = decrypt_credential(cred_row['encrypted_api_password']) if cred_row and cred_row['encrypted_api_password'] else None
+
+    bot = TradingService(
+        user_id=user_id,
+        api_key=api_key,
+        api_secret=api_secret,
+        api_password=api_password,
+        starting_balance=user_settings['starting_balance'],
+        leverage=user_settings['leverage'],
+        selected_coins=user_settings['selected_coins'],
+        timeframe=user_settings.get('timeframe', '5m'),
+        adx_threshold=user_settings.get('adx_threshold', 18),
+    )
+
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(None, bot.analyze_market_direction)
+    return result
+
 def run_optimization_thread(user_id: int, selected_coins: list, starting_balance: float,
                             api_key: str = None, api_secret: str = None, api_password: str = None):
     """Background thread to run optimization"""

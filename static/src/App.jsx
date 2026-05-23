@@ -633,6 +633,109 @@ function GrowthProjection({ periodDays, totalReturn, monthlyRoi }) {
   )
 }
 
+function MarketDirectionScanner({ api }) {
+  const [scan, setScan] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const runScan = async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const res = await api.get('/market/direction')
+      setScan(res.data)
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Failed to scan market direction')
+    }
+    setLoading(false)
+  }
+
+  const dirColor = (label) => {
+    if (!label) return '#8b95a5'
+    if (label.includes('BULL')) return '#00d4aa'
+    if (label.includes('BEAR')) return '#e94560'
+    return '#f5a623'
+  }
+  const regimeColor = { bull: '#00d4aa', bear: '#e94560', sideways: '#f5a623' }
+
+  return (
+    <div className="card">
+      <h2 className="card-title">Market Direction Scanner</h2>
+      <p style={{ color: '#8b95a5', fontSize: 14, marginBottom: 16, lineHeight: 1.5 }}>
+        Multi-timeframe (15m · 1h · 4h) trend, momentum and strength read for each selected token.
+        Use it to see where each token is heading before you optimize, backtest, and go live.
+      </p>
+      <button className="btn btn-primary" onClick={runScan} disabled={loading}>
+        {loading ? 'Scanning...' : 'Scan Market Direction'}
+      </button>
+
+      {error && <div className="error-message" style={{ marginTop: 16 }}>{error}</div>}
+
+      {scan && (
+        <div style={{ marginTop: 16 }}>
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center', padding: '10px 14px', background: '#0f1318', borderRadius: 10, border: '1px solid rgba(255,255,255,0.07)', marginBottom: 16 }}>
+            <span style={{ fontSize: 13, color: '#8b95a5' }}>
+              BTC regime:{' '}
+              <strong style={{ color: regimeColor[scan.market_regime] || '#8b95a5', textTransform: 'uppercase' }}>
+                {scan.market_regime}
+              </strong>
+            </span>
+            <span style={{ fontSize: 13, color: '#00d4aa' }}>▲ {scan.summary?.bullish} bullish</span>
+            <span style={{ fontSize: 13, color: '#e94560' }}>▼ {scan.summary?.bearish} bearish</span>
+            <span style={{ fontSize: 13, color: '#f5a623' }}>● {scan.summary?.neutral} neutral</span>
+            <span style={{ fontSize: 12, color: '#4a5060', marginLeft: 'auto' }}>ADX gate: {scan.adx_threshold}</span>
+          </div>
+
+          {scan.tokens?.map((t) => (
+            <div key={t.symbol} style={{ padding: '12px 14px', background: '#0f1318', borderRadius: 10, border: '1px solid rgba(255,255,255,0.07)', marginBottom: 10 }}>
+              {t.error ? (
+                <div style={{ fontSize: 14 }}>
+                  <strong style={{ color: '#e8eaf0' }}>{t.symbol.split('/')[0]}</strong>
+                  <span style={{ color: '#4a5060', marginLeft: 10 }}>no data</span>
+                </div>
+              ) : (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
+                    <strong style={{ color: '#e8eaf0', fontSize: 16 }}>{t.symbol.split('/')[0]}</strong>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: dirColor(t.label), border: `1px solid ${dirColor(t.label)}`, borderRadius: 6, padding: '2px 8px' }}>
+                      {t.label}
+                    </span>
+                    {t.aligned && (
+                      <span style={{ fontSize: 11, color: '#00d4aa' }}>✓ all TFs aligned</span>
+                    )}
+                    <span style={{ marginLeft: 'auto', fontSize: 12, color: t.tradeable ? '#00d4aa' : '#8b95a5' }}>
+                      {t.recommended_bias}
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 12, color: '#8b95a5', marginBottom: 10 }}>
+                    <span>Conviction: <strong style={{ color: dirColor(t.label) }}>{(t.conviction * 100).toFixed(0)}%</strong></span>
+                    <span>Avg ADX: <strong style={{ color: '#e8eaf0' }}>{t.avg_adx}</strong> ({t.trend_strength})</span>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {t.timeframes?.map((tf) => (
+                      <div key={tf.timeframe} style={{ flex: '1 1 90px', minWidth: 90, padding: '6px 8px', background: '#161b22', borderRadius: 8, borderLeft: `3px solid ${dirColor(tf.direction.toUpperCase())}` }}>
+                        <div style={{ fontSize: 11, color: '#8b95a5', marginBottom: 2 }}>{tf.timeframe}</div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: dirColor(tf.direction.toUpperCase()), textTransform: 'capitalize' }}>{tf.direction}</div>
+                        <div style={{ fontSize: 10, color: '#4a5060', marginTop: 2 }}>RSI {tf.rsi} · ADX {tf.adx}</div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          ))}
+
+          <p style={{ fontSize: 11, color: '#4a5060', marginTop: 4, textAlign: 'center' }}>
+            Scanned {new Date(scan.scanned_at).toLocaleTimeString()} · directional read only, not a trade signal.
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function StrategyPage({ strategies, api }) {
   const [backtestResults, setBacktestResults] = useState(null)
   const [backtestLoading, setBacktestLoading] = useState(false)
@@ -660,6 +763,8 @@ function StrategyPage({ strategies, api }) {
 
   return (
     <>
+      <MarketDirectionScanner api={api} />
+
       {/* Backtest Runner */}
       <div className="card">
         <h2 className="card-title">Backtest Strategy</h2>
