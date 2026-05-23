@@ -157,6 +157,17 @@ class TradingService:
         self.market_regime = 'sideways'     # 'bull' | 'bear' | 'sideways'
         self._regime_check_every = 10
 
+        # Autonomous re-optimization: the bot re-tunes its own structural params on
+        # a schedule and whenever the macro regime flips, auto-applying the winner
+        # when it materially beats the current config. Keeps it in an ideal state
+        # without manual optimizer runs.
+        self._auto_optimize_enabled: bool = True
+        self._auto_opt_interval: float = 24 * 3600   # re-tune at least daily
+        self._last_auto_opt: float = time.time()      # don't fire immediately on boot
+        self._auto_opt_regime: str = self.market_regime
+        self._auto_opt_in_progress: bool = False
+        self._pending_auto_config: dict = None         # hot-applied on the next flat cycle
+
         # Second-opinion signal engine
         self._signal_engine = SignalEngine() if SIGNAL_ENGINE_AVAILABLE else None
 
@@ -1143,6 +1154,42 @@ class TradingService:
         logger.info(f"User {self.user_id}: [OPTIMIZER] Config applied: {', '.join(changed) or 'no changes'}")
         return changed
 
+    def current_config_snapshot(self) -> dict:
+        """Current structural params — used to score 'self' against a search winner."""
+        return {
+            'timeframe': self.timeframe,
+            'leverage': self.leverage,
+            'risk_per_trade': self.risk_per_trade,
+            'stop_loss_pct': self.stop_loss_pct,
+            'take_profit_pct': self.take_profit_pct,
+            'trailing_stop_pct': self.trailing_stop_pct,
+            'profit_risk_multiplier': self.profit_risk_multiplier,
+            'trade_cooldown': self.trade_cooldown,
+            'min_confidence': self.min_confidence,
+            'adx_threshold': self.adx_threshold,
+        }
+
+    def due_for_auto_optimize(self) -> bool:
+        """True when it's time to re-tune: daily cadence, or sooner if the macro
+        regime has flipped (capped at once/hour so a flapping regime can't thrash)."""
+        if not (self._auto_optimize_enabled and self.running) or self._auto_opt_in_progress:
+            return False
+        elapsed = time.time() - self._last_auto_opt
+        if self.market_regime != self._auto_opt_regime and elapsed >= 3600:
+            return True
+        return elapsed >= self._auto_opt_interval
+
+    def maybe_apply_pending_config(self):
+        """Hot-apply a queued auto-optimized config, but only when flat — never
+        change SL/TP/leverage out from under an open position."""
+        if self._pending_auto_config and not self.positions:
+            cfg = self._pending_auto_config
+            self._pending_auto_config = None
+            applied = self.apply_optimizer_config(cfg)
+            logger.info(f"User {self.user_id}: [AUTO-OPT] Hot-applied queued config while flat")
+            return applied
+        return None
+
     def get_status(self):
         coin_signals = {}
         for sig in self.signals_history:
@@ -1195,6 +1242,12 @@ class TradingService:
             'compound': compound,
             # Dynamic sizing
             'last_dynamic_leverage': self._last_dynamic_leverage,
+            'adaptive_scale': round(self._get_adaptive_scale(), 2),
+            # Autonomous self-tuning
+            'auto_optimize_enabled': self._auto_optimize_enabled,
+            'auto_opt_in_progress': self._auto_opt_in_progress,
+            'auto_opt_pending': self._pending_auto_config is not None,
+            'hours_since_auto_opt': round((time.time() - self._last_auto_opt) / 3600, 1),
         }
 
     # ── Trade execution ─────────────────────────────────────────────────────
@@ -1751,6 +1804,9 @@ class TradingService:
 
         self._cycle_count += 1
 
+        # Apply any auto-optimized config that's been queued — only fires when flat.
+        self.maybe_apply_pending_config()
+
         # Re-check market regime every N cycles (uses a separate 4h BTC fetch)
         if self._cycle_count % self._regime_check_every == 1:
             self.market_regime = self._get_market_regime()
@@ -2123,6 +2179,29 @@ class ParameterOptimizer:
             + 0.15 * sharpe_score
             - dd_penalty
         )
+
+    def score_config(self, params: dict):
+        """Score a specific param set on the already-cached data/models. Call AFTER
+        optimize() so the caches are warm. Lets the auto-tuner compare the bot's
+        current live config against the search winner on identical data, so it only
+        switches when there's a real, measured improvement. Returns (score, result)."""
+        tf = params.get('timeframe', '5m')
+        p = {
+            'leverage': params.get('leverage', 10),
+            'risk_per_trade': params.get('risk_per_trade', 0.02),
+            'stop_loss_pct': params.get('stop_loss_pct', 0.01),
+            'take_profit_pct': params.get('take_profit_pct', 0.03),
+            'trailing_stop_pct': params.get('trailing_stop_pct', 0.01),
+            'profit_risk_multiplier': params.get('profit_risk_multiplier', 1.5),
+            'trade_cooldown': params.get('trade_cooldown', 300),
+            'min_confidence': params.get('min_confidence', 0.65),
+            'adx_threshold': params.get('adx_threshold', 18),
+        }
+        try:
+            result = self._run_cached_backtest(tf, p)
+            return self._calculate_score(result), result
+        except Exception:
+            return -999, None
 
     def optimize(self, days: int = 30, progress_callback=None):
         import random

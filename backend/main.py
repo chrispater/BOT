@@ -660,6 +660,98 @@ def run_optimization_thread(user_id: int, selected_coins: list, starting_balance
         except:
             pass
 
+def _auto_config_beats_current(optimizer, best: dict, current_config: dict) -> bool:
+    """Gate for auto-apply: the search winner must clear basic sanity checks AND
+    materially beat the bot's current config scored on the SAME data (≥10% higher
+    score), so the bot never churns into an equal-or-worse parameter set."""
+    if best.get('total_return', 0) <= 0:
+        return False
+    if best.get('win_rate', 0) < 45:
+        return False
+    if best.get('total_trades', 0) < ParameterOptimizer.MIN_TRADES:
+        return False
+    cur_score, _ = optimizer.score_config(current_config)
+    best_score = best.get('score')
+    if best_score is None:
+        return False
+    if cur_score <= 0:
+        return best_score > 0
+    return best_score >= cur_score * 1.10
+
+
+def run_auto_optimization_thread(user_id: int, selected_coins: list, starting_balance: float,
+                                 current_config: dict,
+                                 api_key: str = None, api_secret: str = None, api_password: str = None):
+    """Background self-tuning run. Re-optimizes, then queues the winner for hot-apply
+    (applied on the next flat cycle) and persists it, but only if it materially beats
+    the bot's current config. Reuses the same job/history plumbing as manual runs."""
+    import time as _t
+    import traceback
+    bot = user_bots.get(user_id)
+    try:
+        if not try_start_optimization_job(user_id):
+            print(f"[AUTO-OPT] User {user_id}: optimization job busy — skipping this round", flush=True)
+            return
+        update_optimization_job(user_id, status='running', progress=0)
+        print(f"[AUTO-OPT] User {user_id}: starting self-tune across {selected_coins}", flush=True)
+
+        optimizer = ParameterOptimizer(
+            user_id=user_id, selected_coins=selected_coins, starting_balance=starting_balance,
+            api_key=api_key, api_secret=api_secret, api_password=api_password,
+        )
+        result = optimizer.optimize(days=60)
+        result_json = json.dumps(result, cls=_NumpyEncoder)
+        update_optimization_job(user_id, status='completed', progress=100, result=result_json)
+
+        top = result.get('top_configs') or []
+        best = top[0] if top else None
+        save_optimization_run(
+            user_id=user_id, coins=selected_coins, days=60,
+            total_tested=int(result.get('total_tested', 0)),
+            valid_configs=int(result.get('valid_configs', 0)),
+            result=result_json,
+            best_roi=float(best.get('total_return', 0) or 0) if best else 0,
+            best_monthly_roi=float(best.get('monthly_roi', 0) or 0) if best else 0,
+            best_win_rate=float(best.get('win_rate', 0) or 0) if best else 0,
+        )
+
+        bot_now = user_bots.get(user_id)
+        if best and bot_now and _auto_config_beats_current(optimizer, best, current_config):
+            cfg = {k: best[k] for k in (
+                'leverage', 'timeframe', 'risk_per_trade', 'stop_loss_pct', 'take_profit_pct',
+                'trailing_stop_pct', 'min_confidence', 'adx_threshold',
+                'profit_risk_multiplier', 'trade_cooldown',
+            ) if k in best}
+            bot_now._pending_auto_config = cfg   # hot-applied on next flat cycle
+            update_user_settings(
+                user_id,
+                leverage=int(cfg['leverage']) if 'leverage' in cfg else None,
+                timeframe=str(cfg['timeframe']) if 'timeframe' in cfg else None,
+                risk_per_trade=float(cfg['risk_per_trade']) if 'risk_per_trade' in cfg else None,
+                stop_loss_pct=float(cfg['stop_loss_pct']) if 'stop_loss_pct' in cfg else None,
+                take_profit_pct=float(cfg['take_profit_pct']) if 'take_profit_pct' in cfg else None,
+                trailing_stop_pct=float(cfg['trailing_stop_pct']) if 'trailing_stop_pct' in cfg else None,
+                min_confidence=float(cfg['min_confidence']) if 'min_confidence' in cfg else None,
+                adx_threshold=int(cfg['adx_threshold']) if 'adx_threshold' in cfg else None,
+            )
+            print(f"[AUTO-OPT] User {user_id}: new config queued + persisted: {cfg}", flush=True)
+        else:
+            print(f"[AUTO-OPT] User {user_id}: current config retained (no material improvement)", flush=True)
+    except Exception as e:
+        print(f"[AUTO-OPT] User {user_id}: ERROR - {type(e).__name__}: {e}", flush=True)
+        print(traceback.format_exc(), flush=True)
+        try:
+            update_optimization_job(user_id, status='failed', error=f"{type(e).__name__}: {e}")
+        except Exception:
+            pass
+    finally:
+        bot_done = user_bots.get(user_id)
+        if bot_done:
+            bot_done._auto_opt_in_progress = False
+            bot_done._last_auto_opt = _t.time()
+            bot_done._auto_opt_regime = bot_done.market_regime
+
+
 @app.post("/api/optimize/start")
 async def start_optimization(user = Depends(get_current_user)):
     """Start parameter optimization in background. Returns immediately."""
@@ -914,6 +1006,34 @@ async def admin_update_permissions(target_user_id: int, perms_update: Permission
                            is_admin=perms_update.is_admin)
     return {"status": "updated", "user_id": target_user_id}
 
+def _launch_auto_optimize(user_id: int, bot):
+    """Spawn a background self-tuning run. Marks the bot in-progress immediately so
+    the scheduler doesn't double-fire while the thread is working."""
+    bot._auto_opt_in_progress = True
+    try:
+        with get_db() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT encrypted_api_key, encrypted_api_secret, encrypted_api_password "
+                "FROM users WHERE id = %s", (user_id,)
+            )
+            row = cur.fetchone()
+        api_key      = decrypt_credential(row['encrypted_api_key'])      if row and row['encrypted_api_key']      else None
+        api_secret   = decrypt_credential(row['encrypted_api_secret'])   if row and row['encrypted_api_secret']   else None
+        api_password = decrypt_credential(row['encrypted_api_password']) if row and row['encrypted_api_password'] else None
+
+        thread = threading.Thread(
+            target=run_auto_optimization_thread,
+            args=(user_id, bot.selected_coins, bot.starting_balance,
+                  bot.current_config_snapshot(), api_key, api_secret, api_password),
+        )
+        thread.daemon = False
+        thread.start()
+        print(f"[AUTO-OPT] User {user_id}: self-tune thread launched", flush=True)
+    except Exception as e:
+        bot._auto_opt_in_progress = False
+        print(f"[AUTO-OPT] User {user_id}: failed to launch self-tune: {e}", flush=True)
+
 async def run_bot_loop(user_id: int):
     consecutive_errors = 0
     MAX_CONSECUTIVE_ERRORS = 10
@@ -935,6 +1055,11 @@ async def run_bot_loop(user_id: int):
                         })
                     except:
                         pass
+
+            # Autonomous self-tuning: when due (daily, or sooner on a regime flip),
+            # kick off a background re-optimization that auto-applies the winner.
+            if bot.due_for_auto_optimize():
+                _launch_auto_optimize(user_id, bot)
 
         except Exception as e:
             consecutive_errors += 1

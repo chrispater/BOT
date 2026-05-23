@@ -91,6 +91,25 @@ function App() {
             {botStatus.signal_engine_active && (
               <span className="signal-badge">SignalEngine</span>
             )}
+            {botStatus.auto_optimize_enabled && (
+              <span
+                className="model-badge"
+                title={
+                  botStatus.auto_opt_in_progress ? 'Re-tuning parameters now…'
+                  : botStatus.auto_opt_pending ? 'New config queued — applies when flat'
+                  : `Self-tuning · last run ${botStatus.hours_since_auto_opt ?? '?'}h ago`
+                }
+                style={{
+                  background: botStatus.auto_opt_in_progress ? 'rgba(74,158,255,0.18)' : 'rgba(0,212,170,0.15)',
+                  color: botStatus.auto_opt_in_progress ? '#4a9eff' : '#00d4aa',
+                  border: `1px solid ${botStatus.auto_opt_in_progress ? '#4a9eff' : '#00d4aa'}`,
+                }}
+              >
+                {botStatus.auto_opt_in_progress ? 'AUTOPILOT · TUNING'
+                  : botStatus.auto_opt_pending ? 'AUTOPILOT · QUEUED'
+                  : 'AUTOPILOT'}
+              </span>
+            )}
           </div>
         )}
       </header>
