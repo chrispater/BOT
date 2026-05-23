@@ -785,7 +785,8 @@ async def apply_optimizer_to_bot(run_id: int, user = Depends(get_current_user)):
     except (json.JSONDecodeError, TypeError):
         raise HTTPException(status_code=400, detail="Could not parse optimization result")
 
-    best_config = result.get('best_config') or result.get('configs', [None])[0]
+    top = result.get('top_configs') or result.get('configs') or []
+    best_config = result.get('best_config') or (top[0] if top else None)
     if not best_config:
         raise HTTPException(status_code=400, detail="No best config found in this run")
 
