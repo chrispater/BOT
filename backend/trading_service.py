@@ -1301,6 +1301,120 @@ class TradingService:
 
         return False, ''
 
+    def manual_enter(self, symbol: str, side: str) -> dict:
+        """Force-open a position on demand, bypassing confidence/cooldown/filter gates."""
+        if symbol in self.positions:
+            return {'ok': False, 'error': f'Position already open for {symbol}'}
+
+        try:
+            ticker = self.exchange.fetch_ticker(symbol) if not self.simulation_mode else None
+            price = float(ticker['last']) if ticker else self.fetch_ohlcv(symbol=symbol, limit=5)['close'].iloc[-1]
+        except Exception as e:
+            return {'ok': False, 'error': f'Price fetch failed: {e}'}
+
+        confidence = 0.75
+        margin = self._calculate_margin(confidence)
+        dyn_lev = self._dynamic_leverage(confidence)
+        notional = margin * dyn_lev
+        size = notional / price
+        pos_side = side  # 'long' or 'short'
+        conf_tier = 'MANUAL'
+
+        if not self.simulation_mode:
+            try:
+                market = self.exchange.market(symbol)
+                contract_size = market.get('contractSize', 1) or 1
+                amount = size / contract_size
+                order_side = 'buy' if side == 'long' else 'sell'
+                try:
+                    self.exchange.set_margin_mode('cross', symbol)
+                except Exception:
+                    pass
+                self.exchange.set_leverage(dyn_lev, symbol, params={'marginMode': 'cross'})
+                self.exchange.create_order(
+                    symbol=symbol, type='market', side=order_side, amount=amount,
+                    params={'posSide': pos_side},
+                )
+            except Exception as e:
+                return {'ok': False, 'error': f'Order failed: {e}'}
+
+        self.positions[symbol] = {
+            'side': pos_side, 'size': size, 'entry_price': price,
+            'symbol': symbol, 'margin': margin, 'leverage': dyn_lev,
+            'high_water_mark': price, 'low_water_mark': price,
+            'conf_tier': conf_tier,
+        }
+        self.entry_price = price
+        self.last_trade_times[symbol] = time.time()
+        self.trades_history.append({
+            'type': 'open', 'side': pos_side, 'size': float(size), 'price': float(price),
+            'confidence': float(confidence), 'symbol': symbol, 'margin': float(margin),
+            'leverage': dyn_lev, 'conf_tier': conf_tier,
+            'regime': self.market_regime, 'time': datetime.now().isoformat(),
+        })
+        if self.on_trade:
+            self.on_trade(self.user_id, symbol, pos_side, 'open', size, price, None, confidence, None)
+        mode = 'SIM' if self.simulation_mode else 'LIVE'
+        logger.info(f"User {self.user_id}: [MANUAL/{mode}] Open {pos_side.upper()} {symbol} @ ${price:.2f} | Margin ${margin:.2f} · {dyn_lev}x")
+        return {'ok': True, 'side': pos_side, 'price': price, 'margin': margin, 'leverage': dyn_lev}
+
+    def manual_exit(self, symbol: str) -> dict:
+        """Force-close an open position on demand."""
+        position = self.positions.get(symbol)
+        if position is None:
+            return {'ok': False, 'error': f'No open position for {symbol}'}
+
+        try:
+            ticker = self.exchange.fetch_ticker(symbol) if not self.simulation_mode else None
+            price = float(ticker['last']) if ticker else self.fetch_ohlcv(symbol=symbol, limit=5)['close'].iloc[-1]
+        except Exception as e:
+            return {'ok': False, 'error': f'Price fetch failed: {e}'}
+
+        if not self.simulation_mode:
+            try:
+                market = self.exchange.market(symbol)
+                contract_size = market.get('contractSize', 1) or 1
+                amount = position['size'] / contract_size
+                close_side = 'sell' if position['side'] == 'long' else 'buy'
+                self.exchange.create_order(
+                    symbol=symbol, type='market', side=close_side, amount=amount,
+                    params={'posSide': position['side'], 'reduceOnly': True},
+                )
+            except Exception as e:
+                return {'ok': False, 'error': f'Close order failed: {e}'}
+
+        price_change = (price - position['entry_price']) if position['side'] == 'long' else (position['entry_price'] - price)
+        pnl = price_change * position['size']
+        self.total_pnl += pnl
+        self.total_trades += 1
+        if pnl > 0:
+            self.winning_trades += 1
+        self._record_trade_roi(pnl)
+        self.balance += pnl
+        self._peak_balance = max(self._peak_balance, self.balance)
+
+        margin_used = position.get('margin', 1)
+        lev_pct = (pnl / margin_used * 100) if margin_used > 0 else 0
+        exit_reason = 'Manual Exit'
+
+        self.trades_history.append({
+            'type': 'close', 'side': position['side'], 'price': float(price),
+            'pnl': float(pnl), 'pnl_pct': round(lev_pct, 2),
+            'reason': exit_reason, 'symbol': symbol, 'time': datetime.now().isoformat(),
+        })
+        if self.on_trade:
+            self.on_trade(self.user_id, symbol, position['side'], 'close',
+                          position['size'], price, pnl, None, exit_reason)
+        if self.on_performance:
+            self.on_performance(self.user_id, self.balance, self.total_pnl,
+                                self.total_trades, self.winning_trades)
+        mode = 'SIM' if self.simulation_mode else 'LIVE'
+        logger.info(f"User {self.user_id}: [MANUAL/{mode}] Close {symbol} @ ${price:.2f} PnL ${pnl:.2f} ({lev_pct:.1f}%)")
+        del self.positions[symbol]
+        if not self.simulation_mode:
+            self._sync_live_balance()
+        return {'ok': True, 'pnl': pnl, 'pnl_pct': lev_pct, 'price': price}
+
     def simulate_trade(self, signal, price, confidence, symbol=None, df=None):
         symbol = symbol or self.get_current_symbol()
         current_time = time.time()

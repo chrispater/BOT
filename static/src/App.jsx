@@ -301,6 +301,38 @@ function CompoundTracker({ compound, balance, dynLeverage, maxLeverage }) {
 
 function DashboardPage({ botStatus, api, fetchBotStatus, setError, setSuccess }) {
   const [loading, setLoading] = useState(false)
+  const [manualSymbol, setManualSymbol] = useState('')
+  const [manualSide, setManualSide] = useState('long')
+  const [manualLoading, setManualLoading] = useState(false)
+
+  const selectedCoinsForEntry = botStatus?.selected_coins || []
+
+  const manualEnter = async () => {
+    const sym = manualSymbol || selectedCoinsForEntry[0]
+    if (!sym) return
+    setManualLoading(true)
+    try {
+      const res = await api.post('/bot/manual-enter', { symbol: sym, side: manualSide })
+      setSuccess(`Opened ${manualSide.toUpperCase()} ${sym.split('/')[0]} @ $${res.data.price?.toLocaleString()}`)
+      fetchBotStatus()
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Manual entry failed')
+    }
+    setManualLoading(false)
+  }
+
+  const manualExit = async (symbol) => {
+    setManualLoading(true)
+    try {
+      const res = await api.post('/bot/manual-exit', { symbol })
+      const pnl = res.data.pnl
+      setSuccess(`Closed ${symbol.split('/')[0]} @ $${res.data.price?.toLocaleString()} — PnL: ${pnl >= 0 ? '+' : ''}$${pnl?.toFixed(2)}`)
+      fetchBotStatus()
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Manual exit failed')
+    }
+    setManualLoading(false)
+  }
 
   const startBot = async () => {
     setLoading(true)
@@ -516,17 +548,91 @@ function DashboardPage({ botStatus, api, fetchBotStatus, setError, setSuccess })
                   )}
                 </div>
                 {pos.conf_tier && (
-                  <div style={{ marginTop: 6, display: 'flex', gap: 6 }}>
+                  <div style={{ marginTop: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{
                       padding: '2px 8px', borderRadius: 10, fontSize: 10, fontWeight: 700,
                       background: pos.conf_tier === 'NO-BRAINER' ? 'rgba(0,212,170,0.2)' : pos.conf_tier === 'STRONG' ? 'rgba(245,166,35,0.2)' : 'rgba(255,255,255,0.08)',
                       color: pos.conf_tier === 'NO-BRAINER' ? '#00d4aa' : pos.conf_tier === 'STRONG' ? '#f5a623' : '#8b95a5',
                     }}>{pos.conf_tier}</span>
+                    <button
+                      onClick={() => manualExit(pos.symbol)}
+                      disabled={manualLoading}
+                      style={{
+                        padding: '4px 14px', borderRadius: 8, border: '1px solid rgba(233,69,96,0.5)',
+                        background: 'rgba(233,69,96,0.12)', color: '#e94560', fontSize: 11,
+                        fontWeight: 700, cursor: 'pointer', letterSpacing: 1,
+                      }}
+                    >EXIT</button>
+                  </div>
+                )}
+                {!pos.conf_tier && (
+                  <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end' }}>
+                    <button
+                      onClick={() => manualExit(pos.symbol)}
+                      disabled={manualLoading}
+                      style={{
+                        padding: '4px 14px', borderRadius: 8, border: '1px solid rgba(233,69,96,0.5)',
+                        background: 'rgba(233,69,96,0.12)', color: '#e94560', fontSize: 11,
+                        fontWeight: 700, cursor: 'pointer', letterSpacing: 1,
+                      }}
+                    >EXIT</button>
                   </div>
                 )}
               </div>
             )
           })}
+        </div>
+      )}
+
+      {/* Manual Trade */}
+      {botStatus?.running && (
+        <div className="card">
+          <h2 className="card-title">Manual Trade</h2>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <select
+              value={manualSymbol || selectedCoinsForEntry[0] || ''}
+              onChange={e => setManualSymbol(e.target.value)}
+              style={{
+                flex: 1, minWidth: 140, padding: '8px 10px', borderRadius: 8,
+                background: '#0f1318', border: '1px solid #2a3040', color: '#e8eaf0', fontSize: 13,
+              }}
+            >
+              {selectedCoinsForEntry.map(c => (
+                <option key={c} value={c}>{c.split('/')[0]}</option>
+              ))}
+            </select>
+            <div style={{ display: 'flex', borderRadius: 8, overflow: 'hidden', border: '1px solid #2a3040' }}>
+              {['long', 'short'].map(s => (
+                <button
+                  key={s}
+                  onClick={() => setManualSide(s)}
+                  style={{
+                    padding: '8px 18px', border: 'none', fontSize: 12, fontWeight: 700,
+                    cursor: 'pointer', letterSpacing: 1, textTransform: 'uppercase',
+                    background: manualSide === s
+                      ? (s === 'long' ? 'rgba(0,212,170,0.25)' : 'rgba(233,69,96,0.25)')
+                      : '#0f1318',
+                    color: manualSide === s
+                      ? (s === 'long' ? '#00d4aa' : '#e94560')
+                      : '#4a5060',
+                  }}
+                >{s}</button>
+              ))}
+            </div>
+            <button
+              onClick={manualEnter}
+              disabled={manualLoading || selectedCoinsForEntry.length === 0}
+              style={{
+                padding: '8px 22px', borderRadius: 8, border: 'none', fontSize: 13,
+                fontWeight: 700, cursor: 'pointer', letterSpacing: 1,
+                background: manualSide === 'long' ? 'rgba(0,212,170,0.2)' : 'rgba(233,69,96,0.2)',
+                color: manualSide === 'long' ? '#00d4aa' : '#e94560',
+              }}
+            >{manualLoading ? '...' : 'ENTER'}</button>
+          </div>
+          <p style={{ fontSize: 11, color: '#4a5060', marginTop: 8 }}>
+            Bot resumes auto-trading after the position closes.
+          </p>
         </div>
       )}
     </>
@@ -1337,7 +1443,7 @@ const AVAILABLE_COINS = [
   'BTC/USDT:USDT', 'ETH/USDT:USDT', 'SOL/USDT:USDT', 'XRP/USDT:USDT',
   'DOGE/USDT:USDT', 'BNB/USDT:USDT', 'ADA/USDT:USDT', 'AVAX/USDT:USDT',
   'LINK/USDT:USDT', 'MATIC/USDT:USDT', 'DOT/USDT:USDT', 'UNI/USDT:USDT',
-  'SHIB/USDT:USDT', 'LTC/USDT:USDT', 'ATOM/USDT:USDT'
+  'SHIB/USDT:USDT', 'LTC/USDT:USDT', 'ATOM/USDT:USDT', 'XLM/USDT:USDT'
 ]
 
 function SettingsPage({ api, logout, setError, setSuccess, botStatus }) {

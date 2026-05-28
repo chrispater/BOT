@@ -404,6 +404,36 @@ async def stop_bot(user = Depends(get_current_user)):
         del user_bots[user_id]
     return {"status": "stopped"}
 
+class ManualTradeRequest(BaseModel):
+    symbol: str
+    side: str = 'long'  # 'long' or 'short' (only used for enter)
+
+@app.post("/api/bot/manual-enter")
+async def manual_enter(req: ManualTradeRequest, user = Depends(get_current_user)):
+    user_id = user['user_id']
+    bot = user_bots.get(user_id)
+    if not bot:
+        raise HTTPException(status_code=400, detail="Bot is not running")
+    if req.side not in ('long', 'short'):
+        raise HTTPException(status_code=400, detail="side must be 'long' or 'short'")
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(None, lambda: bot.manual_enter(req.symbol, req.side))
+    if not result.get('ok'):
+        raise HTTPException(status_code=400, detail=result.get('error', 'Entry failed'))
+    return result
+
+@app.post("/api/bot/manual-exit")
+async def manual_exit(req: ManualTradeRequest, user = Depends(get_current_user)):
+    user_id = user['user_id']
+    bot = user_bots.get(user_id)
+    if not bot:
+        raise HTTPException(status_code=400, detail="Bot is not running")
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(None, lambda: bot.manual_exit(req.symbol))
+    if not result.get('ok'):
+        raise HTTPException(status_code=400, detail=result.get('error', 'Exit failed'))
+    return result
+
 @app.get("/api/bot/status")
 async def bot_status(user = Depends(get_current_user)):
     user_id = user['user_id']
