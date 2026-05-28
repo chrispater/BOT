@@ -92,7 +92,7 @@ AVAILABLE_COINS = [
     'BTC/USDT:USDT', 'ETH/USDT:USDT', 'SOL/USDT:USDT', 'XRP/USDT:USDT',
     'DOGE/USDT:USDT', 'BNB/USDT:USDT', 'ADA/USDT:USDT', 'AVAX/USDT:USDT',
     'LINK/USDT:USDT', 'MATIC/USDT:USDT', 'DOT/USDT:USDT', 'UNI/USDT:USDT',
-    'SHIB/USDT:USDT', 'LTC/USDT:USDT', 'ATOM/USDT:USDT'
+    'SHIB/USDT:USDT', 'LTC/USDT:USDT', 'ATOM/USDT:USDT', 'XLM/USDT:USDT'
 ]
 
 # Timeframe → seconds mapping used to align bot loop sleep with candle duration
