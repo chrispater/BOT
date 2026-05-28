@@ -438,17 +438,23 @@ async def manual_exit(req: ManualTradeRequest, user = Depends(get_current_user))
 async def bot_status(user = Depends(get_current_user)):
     user_id = user['user_id']
     if user_id not in user_bots:
+        settings = get_user_settings(user_id)
+        base = {
+            "running": False,
+            "selected_coins": settings.get('selected_coins', []),
+            "leverage": settings.get('leverage'),
+            "simulation_mode": settings.get('simulation_mode', True),
+        }
         perf = get_latest_performance(user_id)
         if perf:
-            return {
-                "running": False,
+            base.update({
                 "balance": float(perf['balance']),
                 "total_pnl": float(perf['total_pnl']),
                 "total_trades": perf['total_trades'],
                 "winning_trades": perf['winning_trades'],
                 "win_rate": (perf['winning_trades'] / perf['total_trades'] * 100) if perf['total_trades'] > 0 else 0
-            }
-        return {"running": False, "message": "Bot not started"}
+            })
+        return base
     return user_bots[user_id].get_status()
 
 @app.get("/api/trades")

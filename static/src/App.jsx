@@ -585,56 +585,59 @@ function DashboardPage({ botStatus, api, fetchBotStatus, setError, setSuccess })
       )}
 
       {/* Manual Trade */}
-      {botStatus?.running && (
-        <div className="card">
-          <h2 className="card-title">Manual Trade</h2>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <select
-              value={manualSymbol || selectedCoinsForEntry[0] || ''}
-              onChange={e => setManualSymbol(e.target.value)}
-              style={{
-                flex: 1, minWidth: 140, padding: '8px 10px', borderRadius: 8,
-                background: '#0f1318', border: '1px solid #2a3040', color: '#e8eaf0', fontSize: 13,
-              }}
-            >
-              {selectedCoinsForEntry.map(c => (
-                <option key={c} value={c}>{c.split('/')[0]}</option>
-              ))}
-            </select>
-            <div style={{ display: 'flex', borderRadius: 8, overflow: 'hidden', border: '1px solid #2a3040' }}>
-              {['long', 'short'].map(s => (
-                <button
-                  key={s}
-                  onClick={() => setManualSide(s)}
-                  style={{
-                    padding: '8px 18px', border: 'none', fontSize: 12, fontWeight: 700,
-                    cursor: 'pointer', letterSpacing: 1, textTransform: 'uppercase',
-                    background: manualSide === s
-                      ? (s === 'long' ? 'rgba(0,212,170,0.25)' : 'rgba(233,69,96,0.25)')
-                      : '#0f1318',
-                    color: manualSide === s
-                      ? (s === 'long' ? '#00d4aa' : '#e94560')
-                      : '#4a5060',
-                  }}
-                >{s}</button>
-              ))}
-            </div>
-            <button
-              onClick={manualEnter}
-              disabled={manualLoading || selectedCoinsForEntry.length === 0}
-              style={{
-                padding: '8px 22px', borderRadius: 8, border: 'none', fontSize: 13,
-                fontWeight: 700, cursor: 'pointer', letterSpacing: 1,
-                background: manualSide === 'long' ? 'rgba(0,212,170,0.2)' : 'rgba(233,69,96,0.2)',
-                color: manualSide === 'long' ? '#00d4aa' : '#e94560',
-              }}
-            >{manualLoading ? '...' : 'ENTER'}</button>
+      <div className="card">
+        <h2 className="card-title">Manual Trade</h2>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', opacity: botStatus?.running ? 1 : 0.5 }}>
+          <select
+            value={manualSymbol || selectedCoinsForEntry[0] || ''}
+            onChange={e => setManualSymbol(e.target.value)}
+            disabled={!botStatus?.running}
+            style={{
+              flex: 1, minWidth: 140, padding: '8px 10px', borderRadius: 8,
+              background: '#0f1318', border: '1px solid #2a3040', color: '#e8eaf0', fontSize: 13,
+            }}
+          >
+            {selectedCoinsForEntry.length === 0 && <option value="">No coins selected</option>}
+            {selectedCoinsForEntry.map(c => (
+              <option key={c} value={c}>{c.split('/')[0]}</option>
+            ))}
+          </select>
+          <div style={{ display: 'flex', borderRadius: 8, overflow: 'hidden', border: '1px solid #2a3040' }}>
+            {['long', 'short'].map(s => (
+              <button
+                key={s}
+                onClick={() => setManualSide(s)}
+                disabled={!botStatus?.running}
+                style={{
+                  padding: '8px 18px', border: 'none', fontSize: 12, fontWeight: 700,
+                  cursor: botStatus?.running ? 'pointer' : 'not-allowed', letterSpacing: 1, textTransform: 'uppercase',
+                  background: manualSide === s
+                    ? (s === 'long' ? 'rgba(0,212,170,0.25)' : 'rgba(233,69,96,0.25)')
+                    : '#0f1318',
+                  color: manualSide === s
+                    ? (s === 'long' ? '#00d4aa' : '#e94560')
+                    : '#4a5060',
+                }}
+              >{s}</button>
+            ))}
           </div>
-          <p style={{ fontSize: 11, color: '#4a5060', marginTop: 8 }}>
-            Bot resumes auto-trading after the position closes.
-          </p>
+          <button
+            onClick={manualEnter}
+            disabled={manualLoading || !botStatus?.running || selectedCoinsForEntry.length === 0}
+            style={{
+              padding: '8px 22px', borderRadius: 8, border: 'none', fontSize: 13,
+              fontWeight: 700, cursor: botStatus?.running ? 'pointer' : 'not-allowed', letterSpacing: 1,
+              background: manualSide === 'long' ? 'rgba(0,212,170,0.2)' : 'rgba(233,69,96,0.2)',
+              color: manualSide === 'long' ? '#00d4aa' : '#e94560',
+            }}
+          >{manualLoading ? '...' : 'ENTER'}</button>
         </div>
-      )}
+        <p style={{ fontSize: 11, color: '#4a5060', marginTop: 8 }}>
+          {botStatus?.running
+            ? 'Bot resumes auto-trading after the position closes.'
+            : 'Start the bot to enable manual entry. The bot then manages the position and resumes looking for the next trade.'}
+        </p>
+      </div>
     </>
   )
 }
