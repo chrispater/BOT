@@ -94,9 +94,9 @@ def _decode_y(y_enc):
 class TradingService:
     def __init__(self, user_id: int, api_key=None, api_secret=None, api_password=None,
                  starting_balance=10000, leverage=10, selected_coins=None,
-                 risk_per_trade=0.02, stop_loss_pct=0.015, take_profit_pct=0.03,
+                 risk_per_trade=0.02, stop_loss_pct=0.15, take_profit_pct=0.30,
                  trade_cooldown=300, min_confidence=0.65, timeframe='5m',
-                 trailing_stop_pct=0.01, max_drawdown_pct=0.20,
+                 trailing_stop_pct=0.10, max_drawdown_pct=0.20,
                  retrain_every=50, profit_risk_multiplier=1.5,
                  adx_threshold=18,
                  on_trade=None, on_signal=None, on_performance=None):
@@ -1282,25 +1282,41 @@ class TradingService:
     # ── Trade execution ─────────────────────────────────────────────────────
 
     def _exit_logic(self, position, price, signal, confidence):
-        """Shared exit decision for both sim and live. Returns (should_exit, reason)."""
+        """Shared exit decision for both sim and live. Returns (should_exit, reason).
+
+        SL, TP, and trailing stop are expressed as % of MARGIN (not % of price).
+        Dividing by leverage converts each threshold to the equivalent price-move
+        trigger, so the margin-risk per trade stays constant regardless of what
+        leverage the optimizer selects.
+
+        Example: SL=15%, leverage=20x → price trigger = 15%/20 = 0.75% price move.
+                 SL=15%, leverage=10x → price trigger = 15%/10 = 1.5%  price move.
+        """
         entry = position['entry_price']
-        pnl_pct = (
+        leverage = max(1, position.get('leverage', self.leverage))
+
+        # Raw price move as a fraction of entry
+        price_pnl_pct = (
             (price - entry) / entry if position['side'] == 'long'
             else (entry - price) / entry
         )
+        # Scale to margin-relative PnL
+        margin_pnl_pct = price_pnl_pct * leverage
 
-        if pnl_pct <= -self.stop_loss_pct:
+        if margin_pnl_pct <= -self.stop_loss_pct:
             return True, 'Stop Loss'
-        if pnl_pct >= self.take_profit_pct:
+        if margin_pnl_pct >= self.take_profit_pct:
             return True, 'Take Profit'
 
-        # Trailing stop — only activates once in profit
-        if pnl_pct > 0:
+        # Trailing stop — activates once the position is in profit.
+        # trailing_stop_pct is also margin-%, so price trail = setting / leverage.
+        trail_price_pct = self.trailing_stop_pct / leverage
+        if price_pnl_pct > 0:
             if position['side'] == 'long':
-                if price <= position['high_water_mark'] * (1 - self.trailing_stop_pct):
+                if price <= position['high_water_mark'] * (1 - trail_price_pct):
                     return True, 'Trailing Stop'
             else:
-                if price >= position['low_water_mark'] * (1 + self.trailing_stop_pct):
+                if price >= position['low_water_mark'] * (1 + trail_price_pct):
                     return True, 'Trailing Stop'
 
         # Signal reversal exit — lower threshold than entry (80%) to avoid lock-in
@@ -2045,12 +2061,12 @@ class ParameterOptimizer:
 
     LEVERAGES = [5, 10, 15, 20, 25, 50]          # removed 2x (too conservative), added 15x, 50x
     RISK_PER_TRADE = [0.01, 0.015, 0.02, 0.03, 0.04, 0.05]
-    STOP_LOSS = [0.005, 0.008, 0.010, 0.012, 0.015, 0.020, 0.025]
-    TAKE_PROFIT = [0.015, 0.020, 0.025, 0.030, 0.040, 0.050, 0.060, 0.080, 0.100]
+    STOP_LOSS = [0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.40, 0.50]   # % of margin
+    TAKE_PROFIT = [0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.80, 1.00, 1.50]  # % of margin
     COOLDOWNS = [60, 180, 300, 600, 900]
     CONFIDENCES = [x / 100 for x in range(60, 90, 5)]  # raised floor from 55% to 60%
     TIMEFRAMES = ['5m', '15m', '30m', '1h', '2h', '4h']
-    TRAILING_STOPS = [0.005, 0.008, 0.010, 0.015, 0.020]
+    TRAILING_STOPS = [0.05, 0.08, 0.10, 0.15, 0.20, 0.25]  # % of margin
     PROFIT_MULTIPLIERS = [1.0, 1.25, 1.5, 2.0, 2.5]
     ADX_THRESHOLDS = [8, 10, 13, 16, 18, 20, 23, 25]  # per-token optimized entry trend filter
 

@@ -233,11 +233,11 @@ async def update_settings(settings: TradingSettings, user = Depends(get_current_
     if settings.risk_per_trade is not None and (settings.risk_per_trade < 0.001 or settings.risk_per_trade > 1.0):
         raise HTTPException(status_code=400, detail="Risk per trade must be between 0.1% and 100%")
 
-    if settings.stop_loss_pct is not None and (settings.stop_loss_pct < 0.001 or settings.stop_loss_pct > 0.1):
-        raise HTTPException(status_code=400, detail="Stop loss must be between 0.1% and 10%")
+    if settings.stop_loss_pct is not None and (settings.stop_loss_pct < 0.01 or settings.stop_loss_pct > 0.75):
+        raise HTTPException(status_code=400, detail="Stop loss must be between 1% and 75% of margin")
 
-    if settings.take_profit_pct is not None and (settings.take_profit_pct < 0.001 or settings.take_profit_pct > 0.2):
-        raise HTTPException(status_code=400, detail="Take profit must be between 0.1% and 20%")
+    if settings.take_profit_pct is not None and (settings.take_profit_pct < 0.01 or settings.take_profit_pct > 2.0):
+        raise HTTPException(status_code=400, detail="Take profit must be between 1% and 200% of margin")
 
     if settings.trade_cooldown is not None and (settings.trade_cooldown < 60 or settings.trade_cooldown > 3600):
         raise HTTPException(status_code=400, detail="Trade cooldown must be between 60 and 3600 seconds")
@@ -248,8 +248,8 @@ async def update_settings(settings: TradingSettings, user = Depends(get_current_
     if settings.timeframe is not None and settings.timeframe not in VALID_TIMEFRAMES:
         raise HTTPException(status_code=400, detail=f"Timeframe must be one of: {', '.join(VALID_TIMEFRAMES)}")
 
-    if settings.trailing_stop_pct is not None and (settings.trailing_stop_pct < 0.001 or settings.trailing_stop_pct > 0.05):
-        raise HTTPException(status_code=400, detail="Trailing stop must be between 0.1% and 5%")
+    if settings.trailing_stop_pct is not None and (settings.trailing_stop_pct < 0.01 or settings.trailing_stop_pct > 0.50):
+        raise HTTPException(status_code=400, detail="Trailing stop must be between 1% and 50% of margin")
 
     if settings.max_drawdown_pct is not None and (settings.max_drawdown_pct < 0.05 or settings.max_drawdown_pct > 0.5):
         raise HTTPException(status_code=400, detail="Max drawdown must be between 5% and 50%")
@@ -304,6 +304,35 @@ async def start_bot(user = Depends(get_current_user)):
     raw_api_password = decrypt_credential(row['encrypted_api_password']) if row and row['encrypted_api_password'] else None
 
     user_settings = get_user_settings(user_id)
+
+    # One-time migration: SL/TP used to be price-%, now they are margin-%.
+    # Detect old format by value < 0.05 (old max was 10% = 0.10, typical was 1-3%).
+    # Multiply by leverage so the price-trigger behaviour stays identical after
+    # the semantic change. Cap to sane margin limits.
+    _lev = user_settings.get('leverage', 10)
+    _sl  = user_settings.get('stop_loss_pct', 0.15)
+    _tp  = user_settings.get('take_profit_pct', 0.30)
+    _tr  = user_settings.get('trailing_stop_pct', 0.10)
+    _migrated = False
+    if _sl < 0.05:
+        user_settings['stop_loss_pct']    = min(round(_sl * _lev, 4), 0.50)
+        _migrated = True
+    if _tp < 0.05:
+        user_settings['take_profit_pct']  = min(round(_tp * _lev, 4), 1.50)
+        _migrated = True
+    if _tr < 0.05:
+        user_settings['trailing_stop_pct'] = min(round(_tr * _lev, 4), 0.30)
+        _migrated = True
+    if _migrated:
+        update_user_settings(
+            user_id,
+            stop_loss_pct=user_settings['stop_loss_pct'],
+            take_profit_pct=user_settings['take_profit_pct'],
+            trailing_stop_pct=user_settings['trailing_stop_pct'],
+        )
+        print(f"[START_BOT] Migrated SL/TP/trail to margin-% for user {user_id}: "
+              f"SL={user_settings['stop_loss_pct']:.2%} TP={user_settings['take_profit_pct']:.2%} "
+              f"trail={user_settings['trailing_stop_pct']:.2%}", flush=True)
 
     # Honour the user's explicit simulation_mode preference.
     want_sim = user_settings.get('simulation_mode', True)

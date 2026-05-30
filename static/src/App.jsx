@@ -1504,14 +1504,14 @@ function SettingsPage({ api, logout, setError, setSuccess, botStatus }) {
   const [leverage, setLeverage] = useState(10)
   const [selectedCoins, setSelectedCoins] = useState(['BTC/USDT:USDT'])
   const [riskPerTrade, setRiskPerTrade] = useState(2)
-  const [stopLossPct, setStopLossPct] = useState(1.5)
-  const [takeProfitPct, setTakeProfitPct] = useState(3)
+  const [stopLossPct, setStopLossPct] = useState(15)
+  const [takeProfitPct, setTakeProfitPct] = useState(30)
   const [tradeCooldown, setTradeCooldown] = useState(5)
   const [minConfidence, setMinConfidence] = useState(65)
   const [timeframe, setTimeframe] = useState('5m')
   const [simulationMode, setSimulationMode] = useState(true)
 
-  const [trailingStopPct, setTrailingStopPct] = useState(1.0)
+  const [trailingStopPct, setTrailingStopPct] = useState(10)
   const [maxDrawdownPct, setMaxDrawdownPct] = useState(20)
   const [retrainEvery, setRetrainEvery] = useState(50)
   const [profitRiskMultiplier, setProfitRiskMultiplier] = useState(1.5)
@@ -1542,13 +1542,13 @@ function SettingsPage({ api, logout, setError, setSuccess, botStatus }) {
       setLeverage(d.leverage || 10)
       setSelectedCoins(d.selected_coins || ['BTC/USDT:USDT'])
       setRiskPerTrade((d.risk_per_trade || 0.02) * 100)
-      setStopLossPct((d.stop_loss_pct || 0.015) * 100)
-      setTakeProfitPct((d.take_profit_pct || 0.03) * 100)
+      setStopLossPct((d.stop_loss_pct || 0.15) * 100)
+      setTakeProfitPct((d.take_profit_pct || 0.30) * 100)
       setTradeCooldown((d.trade_cooldown || 300) / 60)
       setMinConfidence((d.min_confidence || 0.65) * 100)
       setTimeframe(d.timeframe || '5m')
       setSimulationMode(d.simulation_mode !== false)
-      setTrailingStopPct((d.trailing_stop_pct || 0.01) * 100)
+      setTrailingStopPct((d.trailing_stop_pct || 0.10) * 100)
       setMaxDrawdownPct((d.max_drawdown_pct || 0.20) * 100)
       setRetrainEvery(d.retrain_every || 50)
       setProfitRiskMultiplier(d.profit_risk_multiplier || 1.5)
@@ -1575,11 +1575,11 @@ function SettingsPage({ api, logout, setError, setSuccess, botStatus }) {
 
     const v = {
       risk:       Math.max(0.1, Math.min(100, riskPerTrade)),
-      sl:         Math.max(0.1, Math.min(10, stopLossPct)),
-      tp:         Math.max(0.1, Math.min(20, takeProfitPct)),
+      sl:         Math.max(1, Math.min(75, stopLossPct)),
+      tp:         Math.max(1, Math.min(200, takeProfitPct)),
       cooldown:   Math.max(1, Math.min(60, Math.round(tradeCooldown))),
       conf:       Math.max(50, Math.min(95, Math.round(minConfidence))),
-      trail:      Math.max(0.1, Math.min(5, trailingStopPct)),
+      trail:      Math.max(1, Math.min(50, trailingStopPct)),
       drawdown:   Math.max(5, Math.min(50, maxDrawdownPct)),
       retrain:    Math.max(10, Math.min(500, Math.round(retrainEvery))),
       multiplier: Math.max(1.0, Math.min(3.0, profitRiskMultiplier)),
@@ -1741,15 +1741,19 @@ function SettingsPage({ api, logout, setError, setSuccess, botStatus }) {
         </div>
 
         <div className="input-group">
-          <label>Stop Loss (%)</label>
-          <input type="number" value={stopLossPct} onChange={e => setStopLossPct(Number(e.target.value))} min="0.1" max="10" step="0.1" disabled={isBotRunning} style={dis(isBotRunning)} />
-          <p style={{ fontSize: 12, color: '#4a5060', marginTop: 4 }}>Exit if loss exceeds this percentage</p>
+          <label>Stop Loss (% of margin)</label>
+          <input type="number" value={stopLossPct} onChange={e => setStopLossPct(Number(e.target.value))} min="1" max="75" step="1" disabled={isBotRunning} style={dis(isBotRunning)} />
+          <p style={{ fontSize: 12, color: '#4a5060', marginTop: 4 }}>
+            Exit when margin lost ≥ this %. At {leverage}x leverage → {(stopLossPct / leverage).toFixed(2)}% price move.
+          </p>
         </div>
 
         <div className="input-group">
-          <label>Take Profit (%)</label>
-          <input type="number" value={takeProfitPct} onChange={e => setTakeProfitPct(Number(e.target.value))} min="0.1" max="20" step="0.1" disabled={isBotRunning} style={dis(isBotRunning)} />
-          <p style={{ fontSize: 12, color: '#4a5060', marginTop: 4 }}>Exit when profit reaches this percentage</p>
+          <label>Take Profit (% of margin)</label>
+          <input type="number" value={takeProfitPct} onChange={e => setTakeProfitPct(Number(e.target.value))} min="1" max="200" step="1" disabled={isBotRunning} style={dis(isBotRunning)} />
+          <p style={{ fontSize: 12, color: '#4a5060', marginTop: 4 }}>
+            Exit when margin gained ≥ this %. At {leverage}x leverage → {(takeProfitPct / leverage).toFixed(2)}% price move.
+          </p>
         </div>
 
         <div className="input-group">
@@ -1788,10 +1792,10 @@ function SettingsPage({ api, logout, setError, setSuccess, botStatus }) {
         <BotRunningWarning />
 
         <div className="input-group">
-          <label>Trailing Stop (%)</label>
-          <input type="number" value={trailingStopPct} onChange={e => setTrailingStopPct(Number(e.target.value))} min="0.1" max="5" step="0.1" disabled={isBotRunning} style={dis(isBotRunning)} />
+          <label>Trailing Stop (% of margin)</label>
+          <input type="number" value={trailingStopPct} onChange={e => setTrailingStopPct(Number(e.target.value))} min="1" max="50" step="1" disabled={isBotRunning} style={dis(isBotRunning)} />
           <p style={{ fontSize: 12, color: '#4a5060', marginTop: 4 }}>
-            Locks in gains — exits if price drops this % from its peak while in profit. (0.1%–5%)
+            Locks in gains — exits if price retraces this % of margin from its peak while in profit. At {leverage}x leverage → {(trailingStopPct / leverage).toFixed(2)}% price move. (1%–50%)
           </p>
         </div>
 
