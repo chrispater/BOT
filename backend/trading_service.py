@@ -1234,7 +1234,7 @@ class TradingService:
         daily_pnl_pct = (self.balance / max(self.starting_balance, 1) - 1) * 100
 
         compound = self._compound_projection()
-        projected_days_to_1m = compound['days_to_1m'] if compound else None
+        projected_days_to_1m = compound.get('days_to_1m') if compound else None
 
         return {
             'running': self.running,
