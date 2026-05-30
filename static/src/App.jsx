@@ -221,16 +221,8 @@ function AuthScreen({ setToken, setError, error }) {
 /* ─────────────────────────── Compound Tracker ──────────────────────────── */
 
 function CompoundTracker({ compound, balance, dynLeverage, maxLeverage }) {
-  const roi = compound?.avg_trade_roi_pct ?? 0
-  const roiColor = roi >= 5 ? '#00d4aa' : roi >= 2 ? '#f5a623' : roi >= 0 ? '#e8eaf0' : '#ff4444'
   const levUsed = dynLeverage || maxLeverage
   const levPct = maxLeverage ? Math.round((levUsed / maxLeverage) * 100) : 100
-
-  const milestones = [
-    { label: '$10K',  trades: compound?.trades_to_10k,  days: compound?.days_to_10k,  target: 10_000 },
-    { label: '$100K', trades: compound?.trades_to_100k, days: compound?.days_to_100k, target: 100_000 },
-    { label: '$1M',   trades: compound?.trades_to_1m,   days: compound?.days_to_1m,   target: 1_000_000 },
-  ]
 
   const fmtDays = (d) => {
     if (d == null) return '—'
@@ -240,32 +232,84 @@ function CompoundTracker({ compound, balance, dynLeverage, maxLeverage }) {
     return `${(d / 365).toFixed(1)}yr`
   }
 
+  // Not enough trades yet
+  if (!compound || compound.insufficient_data) {
+    const have = compound?.sample_size ?? 0
+    return (
+      <div className="card" style={{ background: 'linear-gradient(135deg, #0d1117 0%, #0f1a0f 100%)', border: '1px solid rgba(0,212,170,0.2)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+          <h2 className="card-title" style={{ margin: 0, color: '#00d4aa' }}>Compound Tracker</h2>
+          <span style={{ fontSize: 11, color: '#4a5060', textTransform: 'uppercase', letterSpacing: '1px' }}>{have} / 10 trades</span>
+        </div>
+        <div style={{ textAlign: 'center', padding: '24px 0', color: '#4a5060', fontSize: 13 }}>
+          Collecting data… need {10 - have} more trade{10 - have !== 1 ? 's' : ''} before projecting.
+        </div>
+      </div>
+    )
+  }
+
+  // Net-losing or negative avg — show honest state, no milestone table
+  if (compound.warning) {
+    const roi = compound.avg_trade_roi_pct ?? 0
+    const pnl = compound.session_pnl ?? 0
+    return (
+      <div className="card" style={{ background: 'linear-gradient(135deg, #0d1117 0%, #110a0a 100%)', border: '1px solid rgba(233,69,96,0.25)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+          <h2 className="card-title" style={{ margin: 0, color: '#e94560' }}>Compound Tracker</h2>
+          <span style={{ fontSize: 11, color: '#4a5060', textTransform: 'uppercase', letterSpacing: '1px' }}>{compound.sample_size} trades sampled</span>
+        </div>
+        <div style={{ textAlign: 'center', padding: '16px 0', borderBottom: '1px solid rgba(255,255,255,0.06)', marginBottom: 14 }}>
+          <div style={{ fontSize: 11, color: '#8b95a5', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 6 }}>Avg ROI per Trade (last 20)</div>
+          <div style={{ fontSize: 42, fontWeight: 900, color: '#e94560', lineHeight: 1 }}>
+            {roi >= 0 ? '+' : ''}{roi.toFixed(2)}%
+          </div>
+          <div style={{ fontSize: 12, color: '#4a5060', marginTop: 6 }}>
+            {compound?.trades_per_day?.toFixed(1) || '—'} trades/day
+          </div>
+        </div>
+        <div style={{ background: 'rgba(233,69,96,0.08)', border: '1px solid rgba(233,69,96,0.2)', borderRadius: 10, padding: '12px 14px', fontSize: 12, color: '#e94560', lineHeight: 1.6 }}>
+          Session PnL: <strong>{pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}</strong> — bot is net-losing this session.
+          No $1M projection shown until the session turns profitable. The autopilot is re-tuning to correct this.
+        </div>
+        <p style={{ fontSize: 11, color: '#2a3040', textAlign: 'center', margin: '10px 0 0' }}>
+          Based on realized trade ROI · 100% reinvestment · No guarantee
+        </p>
+      </div>
+    )
+  }
+
+  const roi = compound.avg_trade_roi_pct ?? 0
+  const roiColor = roi >= 5 ? '#00d4aa' : roi >= 2 ? '#f5a623' : '#e8eaf0'
+  const milestones = [
+    { label: '$10K',  trades: compound.trades_to_10k,  days: compound.days_to_10k,  target: 10_000 },
+    { label: '$100K', trades: compound.trades_to_100k, days: compound.days_to_100k, target: 100_000 },
+    { label: '$1M',   trades: compound.trades_to_1m,   days: compound.days_to_1m,   target: 1_000_000 },
+  ]
+
   return (
     <div className="card" style={{ background: 'linear-gradient(135deg, #0d1117 0%, #0f1a0f 100%)', border: '1px solid rgba(0,212,170,0.2)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
         <h2 className="card-title" style={{ margin: 0, color: '#00d4aa' }}>Compound Tracker</h2>
         <span style={{ fontSize: 11, color: '#4a5060', textTransform: 'uppercase', letterSpacing: '1px' }}>
-          {compound?.sample_size || 0} trades sampled
+          {compound.sample_size || 0} trades sampled
         </span>
       </div>
 
-      {/* Big ROI number */}
       <div style={{ textAlign: 'center', padding: '16px 0 14px', borderBottom: '1px solid rgba(255,255,255,0.06)', marginBottom: 16 }}>
         <div style={{ fontSize: 11, color: '#8b95a5', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 6 }}>
           Avg ROI per Trade (last 20)
         </div>
         <div style={{ fontSize: 42, fontWeight: 900, color: roiColor, lineHeight: 1 }}>
-          {roi >= 0 ? '+' : ''}{roi.toFixed(2)}%
+          +{roi.toFixed(2)}%
         </div>
         <div style={{ fontSize: 12, color: '#4a5060', marginTop: 6, display: 'flex', justifyContent: 'center', gap: 12 }}>
-          <span>{compound?.trades_per_day?.toFixed(1) || '—'} trades/day</span>
+          <span>{compound.trades_per_day?.toFixed(1) || '—'} trades/day</span>
           {levUsed && <span style={{ color: levPct >= 90 ? '#00d4aa' : levPct >= 70 ? '#f5a623' : '#8b95a5' }}>
             last entry: {levUsed}x lev ({levPct}% of max)
           </span>}
         </div>
       </div>
 
-      {/* Milestone table */}
       <div style={{ marginBottom: 8 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr 1fr', gap: '6px 0', fontSize: 11, color: '#4a5060', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px', paddingBottom: 8, borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
           <span>Target</span>

@@ -629,7 +629,8 @@ async def scan_market_direction(user = Depends(get_current_user)):
     return result
 
 def run_optimization_thread(user_id: int, selected_coins: list, starting_balance: float,
-                            api_key: str = None, api_secret: str = None, api_password: str = None):
+                            api_key: str = None, api_secret: str = None, api_password: str = None,
+                            max_leverage: int = None):
     """Background thread to run optimization"""
     import logging
     import traceback
@@ -659,7 +660,8 @@ def run_optimization_thread(user_id: int, selected_coins: list, starting_balance
             starting_balance=starting_balance,
             api_key=api_key,
             api_secret=api_secret,
-            api_password=api_password
+            api_password=api_password,
+            max_leverage=max_leverage,
         )
 
         print(f"[OPTIMIZE] User {user_id}: Starting optimize()", flush=True)
@@ -740,6 +742,7 @@ def run_auto_optimization_thread(user_id: int, selected_coins: list, starting_ba
         optimizer = ParameterOptimizer(
             user_id=user_id, selected_coins=selected_coins, starting_balance=starting_balance,
             api_key=api_key, api_secret=api_secret, api_password=api_password,
+            max_leverage=current_config.get('leverage'),
         )
         result = optimizer.optimize(days=60)
         result_json = json.dumps(result, cls=_NumpyEncoder)
@@ -846,7 +849,7 @@ async def start_optimization(user = Depends(get_current_user)):
     thread = threading.Thread(
         target=run_optimization_thread,
         args=(user_id, user_settings['selected_coins'], user_settings['starting_balance'],
-              api_key, api_secret, api_password)
+              api_key, api_secret, api_password, user_settings.get('leverage'))
     )
     thread.daemon = False  # Non-daemon so it keeps running
     thread.start()

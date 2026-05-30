@@ -486,14 +486,9 @@ class TradingService:
             return []
 
     def _load_roi_history(self) -> list:
-        roi_file = self._buffer_file.replace('.pkl', '_roi.pkl')
-        try:
-            if os.path.exists(roi_file):
-                with open(roi_file, 'rb') as f:
-                    data = pickle.load(f)
-                return data if isinstance(data, list) else []
-        except Exception:
-            pass
+        # Always start fresh — ROI history is for the current trading session only.
+        # Loading old data from previous sessions masks performance changes (e.g. old
+        # profitable sim runs inflating the average while the bot is currently losing).
         return []
 
     def _save_buffers(self):
@@ -1096,12 +1091,22 @@ class TradingService:
         projects trades/days to reach milestone targets from current balance.
         """
         recent = self._trade_roi_history[-20:] if self._trade_roi_history else []
-        if not recent:
-            return None
+        # Need at least 10 trades before the projection is meaningful.
+        if len(recent) < 10:
+            return {'insufficient_data': True, 'sample_size': len(recent)}
 
         avg_roi = sum(recent) / len(recent)  # average ROI per trade (signed fraction)
-        if avg_roi <= 0:
-            return None  # net negative — can't project toward $1MM
+
+        # Reality check: if the bot is net-losing this session, don't project
+        # a positive path to $1M — that's misleading. Show warning instead.
+        session_pnl = self.balance - self.starting_balance
+        if avg_roi <= 0 or session_pnl < 0:
+            return {
+                'avg_trade_roi_pct': round(avg_roi * 100, 3),
+                'sample_size': len(recent),
+                'warning': True,
+                'session_pnl': round(session_pnl, 2),
+            }
 
         hours_running = (time.time() - self._start_time) / 3600
         trades_per_day = self.total_trades / max(1, hours_running / 24)
@@ -2053,13 +2058,16 @@ class ParameterOptimizer:
     SAMPLES_PER_TIMEFRAME = 120      # raised from 100
 
     def __init__(self, user_id: int, selected_coins: list, starting_balance: float = 10000,
-                 api_key: str = None, api_secret: str = None, api_password: str = None):
+                 api_key: str = None, api_secret: str = None, api_password: str = None,
+                 max_leverage: int = None):
         self.user_id = user_id
         self.selected_coins = selected_coins
         self.starting_balance = starting_balance
         self.api_key = api_key
         self.api_secret = api_secret
         self.api_password = api_password
+        # Never let the optimizer test leverage above the user's configured cap.
+        self._max_leverage = max_leverage
         self.ohlcv_cache = {}
         self.model_cache = {}
         self.progress = 0
@@ -2070,9 +2078,13 @@ class ParameterOptimizer:
 
     def _random_params(self):
         import random
+        # Respect the user's leverage cap — never test above what they configured.
+        valid_leverages = [l for l in self.LEVERAGES if self._max_leverage is None or l <= self._max_leverage]
+        if not valid_leverages:
+            valid_leverages = [min(self.LEVERAGES)]
         for _ in range(50):
             params = {
-                'leverage': random.choice(self.LEVERAGES),
+                'leverage': random.choice(valid_leverages),
                 'risk_per_trade': random.choice(self.RISK_PER_TRADE),
                 'stop_loss_pct': random.choice(self.STOP_LOSS),
                 'take_profit_pct': random.choice(self.TAKE_PROFIT),
