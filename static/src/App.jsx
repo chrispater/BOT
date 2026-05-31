@@ -691,7 +691,7 @@ function DashboardPage({ botStatus, api, fetchBotStatus, setError, setSuccess })
 function TradesPage({ botStatus, api }) {
   const [dbTrades, setDbTrades] = useState([])
   useEffect(() => {
-    api.get('/trades').then(r => setDbTrades(r.data || [])).catch(() => {})
+    api.get('/trades').then(r => setDbTrades(r.data?.trades || [])).catch(() => {})
   }, [])
   const trades = botStatus?.recent_trades?.length ? botStatus.recent_trades : dbTrades
 
