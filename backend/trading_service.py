@@ -60,6 +60,7 @@ MIN_CONFIDENCE = 0.65
 TIMEFRAME = '5m'
 LOOKBACK_PERIODS = 1000
 TRADE_COOLDOWN = 300
+TAKER_FEE = 0.0006  # Blofin taker fee — applied at both entry and exit
 
 VALID_TIMEFRAMES = ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '1d']
 
@@ -386,7 +387,8 @@ class TradingService:
         low_arr   = df['low'].values.astype(float)
         high_arr  = df['high'].values.astype(float)
         n         = len(df)
-        sl        = self.stop_loss_pct
+        # SL/TP are stored as % of margin; convert to % of price for label boundaries.
+        sl_price = self.stop_loss_pct / max(1, self.leverage)
 
         future_return  = np.full(n, np.nan)
         future_min_pct = np.full(n, np.nan)
@@ -404,8 +406,8 @@ class TradingService:
         df['future_min_pct'] = future_min_pct
         df['future_max_pct'] = future_max_pct
         df['signal'] = 0
-        df.loc[(df['future_return'] > threshold) & (df['future_min_pct'] > -sl), 'signal'] = 1
-        df.loc[(df['future_return'] < -threshold) & (df['future_max_pct'] < sl), 'signal'] = -1
+        df.loc[(df['future_return'] > threshold) & (df['future_min_pct'] > -sl_price), 'signal'] = 1
+        df.loc[(df['future_return'] < -threshold) & (df['future_max_pct'] < sl_price), 'signal'] = -1
 
         # Fallback: if clean labeling is too sparse OVERALL, or one direction is
         # starved, revert to plain threshold. In trending markets clean SHORT
@@ -691,7 +693,7 @@ class TradingService:
           DD ≤ 20% → 0.25×
           DD >  20% → 0.00× (hard stop — handled by _is_drawdown_exceeded)
         """
-        baseline = self._drawdown_baseline or self.starting_balance
+        baseline = max(self._drawdown_baseline or self.starting_balance, self._peak_balance)
         dd = (baseline - self.balance) / max(baseline, 1)
         if dd <= 0.05:
             return 1.00
@@ -1330,6 +1332,9 @@ class TradingService:
 
     def manual_enter(self, symbol: str, side: str) -> dict:
         """Force-open a position on demand, bypassing confidence/cooldown/filter gates."""
+        side = side.lower()
+        if side not in ('long', 'short'):
+            return {'ok': False, 'error': f"side must be 'long' or 'short', got '{side}'"}
         with self._trade_lock:
             if symbol in self.positions:
                 return {'ok': False, 'error': f'Position already open for {symbol}'}
@@ -1477,7 +1482,7 @@ class TradingService:
             if not self._entry_filter(signal, df):
                 return
 
-            margin = self._calculate_margin(confidence)
+            margin = self._calculate_margin(confidence) * self._get_regime_multiplier(signal)
             if margin <= 0:
                 return
 
@@ -1519,7 +1524,8 @@ class TradingService:
 
             if should_exit:
                 price_change = (price - position['entry_price']) if position['side'] == 'long' else (position['entry_price'] - price)
-                pnl = price_change * position['size']
+                fee = (position['entry_price'] + price) * position['size'] * TAKER_FEE
+                pnl = price_change * position['size'] - fee
                 self.total_pnl += pnl
                 self.total_trades += 1
                 if pnl > 0:
@@ -1547,7 +1553,7 @@ class TradingService:
                                         self.total_trades, self.winning_trades)
                 logger.info(
                     f"User {self.user_id}: [SIM] Close {symbol} — {exit_reason} "
-                    f"PnL ${pnl:.2f} ({lev_pct:.1f}%) | Balance ${self.balance:.2f}"
+                    f"PnL ${pnl:.2f} ({lev_pct:.1f}%) fee=${fee:.2f} | Balance ${self.balance:.2f}"
                 )
                 del self.positions[symbol]
 
@@ -1588,7 +1594,7 @@ class TradingService:
                     logger.warning(f"User {self.user_id}: Balance fetch failed: {e}")
                     avail = self.balance
 
-                margin = self._calculate_margin(confidence)
+                margin = self._calculate_margin(confidence) * self._get_regime_multiplier(signal)
                 margin = min(margin, avail * 0.95)
 
                 dyn_lev = self._dynamic_leverage(confidence)
@@ -1663,12 +1669,20 @@ class TradingService:
                     market = self.exchange.market(pos_sym)
                     amount = position['size'] / (market.get('contractSize', 1) or 1)
 
-                    self.exchange.create_order(
-                        symbol=pos_sym, type='market', side=close_side, amount=amount,
-                        params={'posSide': position['side'], 'reduceOnly': True},
-                    )
+                    try:
+                        self.exchange.create_order(
+                            symbol=pos_sym, type='market', side=close_side, amount=amount,
+                            params={'posSide': position['side'], 'reduceOnly': True},
+                        )
+                    except Exception as close_err:
+                        logger.error(f"User {self.user_id}: Close order FAILED for {pos_sym}: {close_err}. Removing position and resyncing.")
+                        del self.positions[symbol]
+                        self._sync_live_balance()
+                        return
+
                     price_change = (price - position['entry_price']) if position['side'] == 'long' else (position['entry_price'] - price)
-                    pnl = price_change * position['size']
+                    fee = (position['entry_price'] + price) * position['size'] * TAKER_FEE
+                    pnl = price_change * position['size'] - fee
                     self.total_pnl += pnl
                     self.total_trades += 1
                     if pnl > 0:
@@ -1696,10 +1710,11 @@ class TradingService:
                                             self.total_trades, self.winning_trades)
                     logger.info(
                         f"User {self.user_id}: [LIVE] Close {pos_sym} — {exit_reason} "
-                        f"PnL ${pnl:.2f} ({lev_pct:.1f}%)"
+                        f"PnL ${pnl:.2f} ({lev_pct:.1f}%) fee=${fee:.2f}"
                     )
                     del self.positions[symbol]
-                    self._sync_live_balance()
+                    # Don't sync immediately after close — the next entry's pre-trade
+                    # sync (line ~1580) will pick up the settled balance accurately.
 
             elif position is None and signal == 0:
                 logger.debug(f"User {self.user_id}: [{symbol}] No trade — model output FLAT (signal=0)")
@@ -1825,22 +1840,25 @@ class TradingService:
                     else:
                         lwm = min(lwm, price)
 
-                    pnl_pct = (
+                    price_pnl_pct = (
                         (price - entry_price) / entry_price if position['side'] == 'long'
                         else (entry_price - price) / entry_price
                     )
+                    bt_lev = max(1, getattr(self, 'leverage', 1))
+                    margin_pnl_pct = price_pnl_pct * bt_lev
+                    trail_price_pct = self.trailing_stop_pct / bt_lev
 
                     should_exit = False
                     exit_reason = ''
-                    if pnl_pct <= -self.stop_loss_pct:
+                    if margin_pnl_pct <= -self.stop_loss_pct:
                         should_exit, exit_reason = True, 'Stop Loss'
-                    elif pnl_pct >= self.take_profit_pct:
+                    elif margin_pnl_pct >= self.take_profit_pct:
                         should_exit, exit_reason = True, 'Take Profit'
                     else:
-                        if pnl_pct > 0:
-                            if position['side'] == 'long' and price <= hwm * (1 - self.trailing_stop_pct):
+                        if price_pnl_pct > 0:
+                            if position['side'] == 'long' and price <= hwm * (1 - trail_price_pct):
                                 should_exit, exit_reason = True, 'Trailing Stop'
-                            elif position['side'] == 'short' and price >= lwm * (1 + self.trailing_stop_pct):
+                            elif position['side'] == 'short' and price >= lwm * (1 + trail_price_pct):
                                 should_exit, exit_reason = True, 'Trailing Stop'
                         if not should_exit:
                             exit_conf = self.min_confidence * 0.8
@@ -2267,22 +2285,25 @@ class ParameterOptimizer:
                         else:
                             lwm = min(lwm, price)
 
-                        pnl_pct = (
+                        price_pnl_pct = (
                             (price - entry_price) / entry_price if position['side'] == 'long'
                             else (entry_price - price) / entry_price
                         )
+                        opt_lev = max(1, params.get('leverage', 1))
+                        margin_pnl_pct = price_pnl_pct * opt_lev
                         ts = params.get('trailing_stop_pct', 0.01)
+                        trail_price_pct = ts / opt_lev
                         should_exit = False
 
-                        if pnl_pct <= -params['stop_loss_pct']:
+                        if margin_pnl_pct <= -params['stop_loss_pct']:
                             should_exit = True
-                        elif pnl_pct >= params['take_profit_pct']:
+                        elif margin_pnl_pct >= params['take_profit_pct']:
                             should_exit = True
                         else:
-                            if pnl_pct > 0:
-                                if position['side'] == 'long' and price <= hwm * (1 - ts):
+                            if price_pnl_pct > 0:
+                                if position['side'] == 'long' and price <= hwm * (1 - trail_price_pct):
                                     should_exit = True
-                                elif position['side'] == 'short' and price >= lwm * (1 + ts):
+                                elif position['side'] == 'short' and price >= lwm * (1 + trail_price_pct):
                                     should_exit = True
                             if not should_exit:
                                 exit_conf = params['min_confidence'] * 0.8

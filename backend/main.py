@@ -305,23 +305,22 @@ async def start_bot(user = Depends(get_current_user)):
 
     user_settings = get_user_settings(user_id)
 
-    # One-time migration: SL/TP used to be price-%, now they are margin-%.
-    # Detect old format by value < 0.05 (old max was 10% = 0.10, typical was 1-3%).
-    # Multiply by leverage so the price-trigger behaviour stays identical after
-    # the semantic change. Cap to sane margin limits.
+    # One-time migration: SL/TP/trail used to be % of price, now they are % of margin.
+    # Safe detection: only migrate values strictly below the enforced minimum (0.01 = 1%)
+    # so that valid new margin-% values (1–75%) are never corrupted on subsequent starts.
     _lev = user_settings.get('leverage', 10)
     _sl  = user_settings.get('stop_loss_pct', 0.15)
     _tp  = user_settings.get('take_profit_pct', 0.30)
     _tr  = user_settings.get('trailing_stop_pct', 0.10)
     _migrated = False
-    if _sl < 0.05:
-        user_settings['stop_loss_pct']    = min(round(_sl * _lev, 4), 0.50)
+    if _sl < 0.01:
+        user_settings['stop_loss_pct']    = min(round(_sl * _lev, 4), 0.75)
         _migrated = True
-    if _tp < 0.05:
-        user_settings['take_profit_pct']  = min(round(_tp * _lev, 4), 1.50)
+    if _tp < 0.01:
+        user_settings['take_profit_pct']  = min(round(_tp * _lev, 4), 2.00)
         _migrated = True
-    if _tr < 0.05:
-        user_settings['trailing_stop_pct'] = min(round(_tr * _lev, 4), 0.30)
+    if _tr < 0.01:
+        user_settings['trailing_stop_pct'] = min(round(_tr * _lev, 4), 0.50)
         _migrated = True
     if _migrated:
         update_user_settings(
@@ -330,9 +329,13 @@ async def start_bot(user = Depends(get_current_user)):
             take_profit_pct=user_settings['take_profit_pct'],
             trailing_stop_pct=user_settings['trailing_stop_pct'],
         )
-        print(f"[START_BOT] Migrated SL/TP/trail to margin-% for user {user_id}: "
-              f"SL={user_settings['stop_loss_pct']:.2%} TP={user_settings['take_profit_pct']:.2%} "
-              f"trail={user_settings['trailing_stop_pct']:.2%}", flush=True)
+    _lev_disp = user_settings.get('leverage', 10)
+    print(f"[START_BOT] User {user_id} SL/TP: "
+          f"SL={user_settings.get('stop_loss_pct', 0.15)*100:.1f}% margin "
+          f"(={user_settings.get('stop_loss_pct', 0.15)/_lev_disp*100:.2f}% price at {_lev_disp}x) | "
+          f"TP={user_settings.get('take_profit_pct', 0.30)*100:.1f}% margin "
+          f"(={user_settings.get('take_profit_pct', 0.30)/_lev_disp*100:.2f}% price at {_lev_disp}x)",
+          flush=True)
 
     # Honour the user's explicit simulation_mode preference.
     want_sim = user_settings.get('simulation_mode', True)
@@ -412,12 +415,13 @@ async def start_bot(user = Depends(get_current_user)):
         on_performance=on_performance
     )
     bot.running = True
-    # Restore balance from DB — preserves compound growth across restarts.
-    # Also update starting_balance so the profit-tier tracks from actual current balance.
+    # Restore live balance — preserves compound growth across restarts.
+    # starting_balance stays at the user's configured inception value so the
+    # profit-tier multiplier keeps firing on the gains above that baseline.
     bot.balance = restored_balance
-    bot.starting_balance = restored_balance
-    # Set drawdown baseline to restored balance so drawdown is measured from NOW,
-    # not from a stale configured starting_balance (prevents false 97% drawdown block).
+    bot._peak_balance = max(restored_balance, bot.starting_balance)
+    # Drawdown baseline is the restored balance so drawdown is measured from
+    # the current equity level, not from a stale configured starting_balance.
     bot._drawdown_baseline = restored_balance
     user_bots[user_id] = bot
 
@@ -445,7 +449,7 @@ async def manual_enter(req: ManualTradeRequest, user = Depends(get_current_user)
         raise HTTPException(status_code=400, detail="Bot is not running")
     if req.side not in ('long', 'short'):
         raise HTTPException(status_code=400, detail="side must be 'long' or 'short'")
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     result = await loop.run_in_executor(None, lambda: bot.manual_enter(req.symbol, req.side))
     if not result.get('ok'):
         raise HTTPException(status_code=400, detail=result.get('error', 'Entry failed'))
@@ -457,7 +461,7 @@ async def manual_exit(req: ManualTradeRequest, user = Depends(get_current_user))
     bot = user_bots.get(user_id)
     if not bot:
         raise HTTPException(status_code=400, detail="Bot is not running")
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     result = await loop.run_in_executor(None, lambda: bot.manual_exit(req.symbol))
     if not result.get('ok'):
         raise HTTPException(status_code=400, detail=result.get('error', 'Exit failed'))
@@ -916,9 +920,15 @@ async def get_optimization_status(user = Depends(get_current_user)):
         return {"status": "not_started", "message": "No optimization job found. Start one with POST /api/optimize/start"}
 
     if job['status'] == 'completed':
+        result_data = job['result']
+        if isinstance(result_data, str):
+            try:
+                result_data = json.loads(result_data)
+            except Exception:
+                pass
         return {
             "status": "completed",
-            "result": job['result']
+            "result": result_data
         }
     elif job['status'] == 'failed':
         return {

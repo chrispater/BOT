@@ -127,7 +127,7 @@ function App() {
             setSuccess={setSuccess}
           />
         )}
-        {currentPage === 'trades' && <TradesPage botStatus={botStatus} />}
+        {currentPage === 'trades' && <TradesPage botStatus={botStatus} api={api} />}
         {currentPage === 'strategy' && <StrategyPage strategies={strategies} api={api} />}
         {currentPage === 'optimize' && (
           <OptimizePage api={api} setError={setError} setSuccess={setSuccess} />
@@ -300,7 +300,7 @@ function CompoundTracker({ compound, balance, dynLeverage, maxLeverage }) {
           Avg ROI per Trade (last 20)
         </div>
         <div style={{ fontSize: 42, fontWeight: 900, color: roiColor, lineHeight: 1 }}>
-          +{roi.toFixed(2)}%
+          {roi >= 0 ? '+' : ''}{roi.toFixed(2)}%
         </div>
         <div style={{ fontSize: 12, color: '#4a5060', marginTop: 6, display: 'flex', justifyContent: 'center', gap: 12 }}>
           <span>{compound.trades_per_day?.toFixed(1) || '—'} trades/day</span>
@@ -688,8 +688,12 @@ function DashboardPage({ botStatus, api, fetchBotStatus, setError, setSuccess })
 
 /* ─────────────────────────── Trades ─────────────────────────── */
 
-function TradesPage({ botStatus }) {
-  const trades = botStatus?.recent_trades || []
+function TradesPage({ botStatus, api }) {
+  const [dbTrades, setDbTrades] = useState([])
+  useEffect(() => {
+    api.get('/trades').then(r => setDbTrades(r.data || [])).catch(() => {})
+  }, [])
+  const trades = botStatus?.recent_trades?.length ? botStatus.recent_trades : dbTrades
 
   return (
     <div className="card">
