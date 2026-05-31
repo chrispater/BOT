@@ -599,6 +599,14 @@ async def run_backtest(user = Depends(get_current_user)):
     bt_api_secret   = decrypt_credential(cred_row['encrypted_api_secret'])   if cred_row and cred_row['encrypted_api_secret']   else None
     bt_api_password = decrypt_credential(cred_row['encrypted_api_password']) if cred_row and cred_row['encrypted_api_password'] else None
 
+    # Apply the same SL/TP format migration as start_bot so the backtest uses
+    # margin-% values even if the user hasn't restarted the live bot yet.
+    _bt_lev = user_settings.get('leverage', 10)
+    for _key, _cap in [('stop_loss_pct', 0.75), ('take_profit_pct', 2.00), ('trailing_stop_pct', 0.50)]:
+        _v = user_settings.get(_key, 0.15)
+        if _v < 0.01:
+            user_settings[_key] = min(round(_v * _bt_lev, 4), _cap)
+
     bot = TradingService(
         user_id=user_id,
         api_key=bt_api_key,
@@ -613,7 +621,7 @@ async def run_backtest(user = Depends(get_current_user)):
         trade_cooldown=user_settings['trade_cooldown'],
         min_confidence=user_settings['min_confidence'],
         timeframe=user_settings.get('timeframe', '5m'),
-        trailing_stop_pct=user_settings.get('trailing_stop_pct', 0.01),
+        trailing_stop_pct=user_settings.get('trailing_stop_pct', 0.10),
         max_drawdown_pct=user_settings.get('max_drawdown_pct', 0.20),
         retrain_every=user_settings.get('retrain_every', 50),
         profit_risk_multiplier=user_settings.get('profit_risk_multiplier', 1.5),

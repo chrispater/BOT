@@ -388,7 +388,9 @@ class TradingService:
         high_arr  = df['high'].values.astype(float)
         n         = len(df)
         # SL/TP are stored as % of margin; convert to % of price for label boundaries.
-        sl_price = self.stop_loss_pct / max(1, self.leverage)
+        # Floor at 0.5% price so that unmigrated old-format values (or high leverage)
+        # never produce a boundary so tight that nothing gets labeled.
+        sl_price = max(self.stop_loss_pct / max(1, self.leverage), 0.005)
 
         future_return  = np.full(n, np.nan)
         future_min_pct = np.full(n, np.nan)
