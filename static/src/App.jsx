@@ -1520,6 +1520,8 @@ function SettingsPage({ api, logout, setError, setSuccess, botStatus }) {
   const [retrainEvery, setRetrainEvery] = useState(50)
   const [profitRiskMultiplier, setProfitRiskMultiplier] = useState(1.5)
   const [adxThreshold, setAdxThreshold] = useState(18)
+  const [reliabilityGate, setReliabilityGate] = useState(true)
+  const [reliabilityWinrate, setReliabilityWinrate] = useState(60)
 
   const [settingsLoading, setSettingsLoading] = useState(false)
 
@@ -1557,6 +1559,8 @@ function SettingsPage({ api, logout, setError, setSuccess, botStatus }) {
       setRetrainEvery(d.retrain_every || 50)
       setProfitRiskMultiplier(d.profit_risk_multiplier || 1.5)
       setAdxThreshold(d.adx_threshold || 18)
+      setReliabilityGate(d.reliability_gate !== false)
+      setReliabilityWinrate(Math.round((d.reliability_min_winrate || 0.60) * 100))
     } catch (e) {}
   }
 
@@ -1588,13 +1592,14 @@ function SettingsPage({ api, logout, setError, setSuccess, botStatus }) {
       retrain:    Math.max(10, Math.min(500, Math.round(retrainEvery))),
       multiplier: Math.max(1.0, Math.min(3.0, profitRiskMultiplier)),
       adx:        Math.max(5, Math.min(30, Math.round(adxThreshold))),
+      relwr:      Math.max(50, Math.min(90, Math.round(reliabilityWinrate))),
     }
 
     setRiskPerTrade(v.risk); setStopLossPct(v.sl); setTakeProfitPct(v.tp)
     setTradeCooldown(v.cooldown); setMinConfidence(v.conf)
     setTrailingStopPct(v.trail); setMaxDrawdownPct(v.drawdown)
     setRetrainEvery(v.retrain); setProfitRiskMultiplier(v.multiplier)
-    setAdxThreshold(v.adx)
+    setAdxThreshold(v.adx); setReliabilityWinrate(v.relwr)
 
     setSettingsLoading(true)
     try {
@@ -1614,6 +1619,8 @@ function SettingsPage({ api, logout, setError, setSuccess, botStatus }) {
         retrain_every: v.retrain,
         profit_risk_multiplier: v.multiplier,
         adx_threshold: v.adx,
+        reliability_gate: reliabilityGate,
+        reliability_min_winrate: v.relwr / 100,
       })
       setSuccess('Settings saved')
     } catch (e) {
@@ -1779,6 +1786,24 @@ function SettingsPage({ api, logout, setError, setSuccess, botStatus }) {
           <input type="number" value={adxThreshold} onChange={e => setAdxThreshold(Number(e.target.value))} min="5" max="30" step="1" disabled={isBotRunning} style={dis(isBotRunning)} />
           <p style={{ fontSize: 12, color: '#4a5060', marginTop: 4 }}>
             Minimum ADX trend strength required to open a trade (5–30). Lower = more trades, higher = stronger trends only. Run Optimizer to find the best value per token.
+          </p>
+        </div>
+
+        <div className="input-group">
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input type="checkbox" checked={reliabilityGate} onChange={e => setReliabilityGate(e.target.checked)} disabled={isBotRunning} style={{ width: 'auto' }} />
+            Signal Confluence Gate
+          </label>
+          <p style={{ fontSize: 12, color: '#4a5060', marginTop: 4 }}>
+            Only enter when a technical signal with a proven track record agrees with the ML model. Double-confirmation cuts losses and concentrates capital on high-conviction setups.
+          </p>
+        </div>
+
+        <div className="input-group">
+          <label>Confluence Reliability Bar (% win rate)</label>
+          <input type="number" value={reliabilityWinrate} onChange={e => setReliabilityWinrate(Number(e.target.value))} min="50" max="90" step="1" disabled={isBotRunning || !reliabilityGate} style={dis(isBotRunning || !reliabilityGate)} />
+          <p style={{ fontSize: 12, color: '#4a5060', marginTop: 4 }}>
+            A signal counts as "reliable" only above this historical win rate (measured with your real leverage, SL/TP &amp; fees). The optimizer tunes this per coin. (50–90%)
           </p>
         </div>
 
