@@ -47,6 +47,14 @@ try:
 except Exception:
     SIGNAL_ENGINE_AVAILABLE = False
 
+try:
+    from backend.signal_reliability import SignalReliability
+except Exception:
+    try:
+        from signal_reliability import SignalReliability
+    except Exception:
+        SignalReliability = None
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -100,6 +108,7 @@ class TradingService:
                  trailing_stop_pct=0.10, max_drawdown_pct=0.20,
                  retrain_every=50, profit_risk_multiplier=1.5,
                  adx_threshold=18,
+                 reliability_gate=True, reliability_min_winrate=0.60,
                  on_trade=None, on_signal=None, on_performance=None):
 
         self.user_id = user_id
@@ -139,6 +148,8 @@ class TradingService:
         self.retrain_every = retrain_every
         self.profit_risk_multiplier = profit_risk_multiplier
         self.adx_threshold = max(5, int(adx_threshold))
+        self.reliability_gate = bool(reliability_gate)
+        self.reliability_min_winrate = float(reliability_min_winrate)
 
         self._model_file = os.path.join(_MODEL_DIR, f'model_u{user_id}.pkl')
         self._buffer_file = os.path.join(_MODEL_DIR, f'buffer_u{user_id}.pkl')
@@ -177,6 +188,23 @@ class TradingService:
 
         # Second-opinion signal engine
         self._signal_engine = SignalEngine() if SIGNAL_ENGINE_AVAILABLE else None
+
+        # Per-signal reliability confluence layer. Scorecards are rebuilt per
+        # symbol on a refresh interval (cheap — signals are sparse) and cached.
+        self._reliability = None
+        if SignalReliability is not None:
+            tf_min = self._get_timeframe_minutes() if hasattr(self, '_get_timeframe_minutes') else 5
+            horizon = max(12, int(120 / max(1, tf_min)))  # ~2h of candles to let SL/TP resolve
+            self._reliability = SignalReliability(
+                leverage=self.leverage,
+                stop_loss_pct=self.stop_loss_pct,
+                take_profit_pct=self.take_profit_pct,
+                horizon=horizon,
+                min_winrate=self.reliability_min_winrate,
+            )
+        self._reliability_cards: dict = {}   # symbol → scorecard dict
+        self._reliability_card_age: dict = {}  # symbol → cycle count at last build
+        self._reliability_refresh_every = 20
 
         self.on_trade = on_trade
         self.on_signal = on_signal
@@ -882,6 +910,38 @@ class TradingService:
             return False
         return True
 
+    def _reliability_confluence(self, symbol, signal, df):
+        """
+        Confluence gate: does a *reliable* technical signal agree with the ML
+        direction on the latest candle? Returns (ok, boost).
+          • ok=True  → a proven signal agrees (or the gate is unavailable).
+          • ok=False → no proven signal backs this entry; caller skips it.
+        Fail-open: if the scorer is missing or errors, returns (True, 1.0) so the
+        bot never freezes on an infrastructure issue.
+        """
+        if self._reliability is None or df is None or len(df) < 60:
+            return True, 1.0
+        try:
+            self._reliability.leverage = max(1, self.leverage)
+            self._reliability.stop_loss_pct = self.stop_loss_pct
+            self._reliability.take_profit_pct = self.take_profit_pct
+            self._reliability.min_winrate = self.reliability_min_winrate
+
+            age = self._cycle_count - self._reliability_card_age.get(symbol, -10**9)
+            card = self._reliability_cards.get(symbol)
+            if card is None or age >= self._reliability_refresh_every:
+                card = self._reliability.score(df)
+                self._reliability_cards[symbol] = card
+                self._reliability_card_age[symbol] = self._cycle_count
+
+            agrees, boost, name, wr = self._reliability.confluence(df, card, signal)
+            if agrees:
+                logger.info(f"User {self.user_id}: [{symbol}] Confluence ✓ {name} (win {wr:.0%})")
+            return agrees, boost
+        except Exception as e:
+            logger.warning(f"User {self.user_id}: Reliability confluence error: {e}")
+            return True, 1.0
+
     def _get_market_regime(self) -> str:
         """
         Detect macro BTC trend from 4h candles (50-period EMA slope + price position).
@@ -1484,6 +1544,11 @@ class TradingService:
             if not self._entry_filter(signal, df):
                 return
 
+            rel_ok, _ = self._reliability_confluence(symbol, signal, df)
+            if self.reliability_gate and not rel_ok:
+                logger.info(f"User {self.user_id}: [{symbol}] Entry blocked — no reliable signal confluence")
+                return
+
             margin = self._calculate_margin(confidence) * self._get_regime_multiplier(signal)
             if margin <= 0:
                 return
@@ -1581,6 +1646,11 @@ class TradingService:
                     return
                 if not self._entry_filter(signal, df):
                     return  # _entry_filter already logs the reason
+
+                rel_ok, _ = self._reliability_confluence(symbol, signal, df)
+                if self.reliability_gate and not rel_ok:
+                    logger.info(f"User {self.user_id}: [{symbol}] Entry blocked — no reliable signal confluence")
+                    return
 
                 # Sync balance from exchange before sizing — catches deposits/settlements
                 # that occurred since the last close so every entry compounds off the
@@ -2089,6 +2159,7 @@ class ParameterOptimizer:
     TRAILING_STOPS = [0.05, 0.08, 0.10, 0.15, 0.20, 0.25]  # % of margin
     PROFIT_MULTIPLIERS = [1.0, 1.25, 1.5, 2.0, 2.5]
     ADX_THRESHOLDS = [8, 10, 13, 16, 18, 20, 23, 25]  # per-token optimized entry trend filter
+    RELIABILITY_WINRATES = [0.55, 0.60, 0.65, 0.70, 0.75]  # confluence gate bar — tuned per token
 
     MIN_TRADES = 20                  # raised from 15 — more robust signal requirement
     SAMPLES_PER_TIMEFRAME = 120      # raised from 100
@@ -2262,7 +2333,7 @@ class ParameterOptimizer:
                     adx_o = row.get('adx', 25); adx_o = 25.0 if pd.isna(adx_o) else float(adx_o)
                     vol_o = row.get('volume_ratio', 1.0); vol_o = 1.0 if pd.isna(vol_o) else float(vol_o)
                     SLIP = 0.0005  # 5 bps slippage per leg
-                    if position is None and sig_val != 0 and conf >= params['min_confidence'] and adx_o >= params['adx_threshold'] and vol_o >= 0.65:
+                    if position is None and sig_val != 0 and conf >= params['min_confidence'] and adx_o >= params['adx_threshold'] and vol_o >= 0.65 and (reliable_map is None or sig_val in reliable_map.get(i, ())):
                         # Confidence-scaled margin (mirrors live _calculate_margin)
                         conf_rng_o = max(0.01, 1.0 - params['min_confidence'])
                         c_scale_o = max(0.5, min(1.5, 0.5 + (conf - params['min_confidence']) / conf_rng_o))
@@ -2478,6 +2549,7 @@ class ParameterOptimizer:
                             'trade_cooldown': params['trade_cooldown'],
                             'min_confidence': params['min_confidence'],
                             'adx_threshold': params['adx_threshold'],
+                'reliability_min_winrate': params.get('reliability_min_winrate', 0.60),
                             'total_return': round(result['total_return'], 2),
                             'win_rate': round(result['win_rate'], 2),
                             'total_trades': result['total_trades'],

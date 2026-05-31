@@ -260,6 +260,9 @@ async def update_settings(settings: TradingSettings, user = Depends(get_current_
     if settings.profit_risk_multiplier is not None and (settings.profit_risk_multiplier < 1.0 or settings.profit_risk_multiplier > 3.0):
         raise HTTPException(status_code=400, detail="Profit risk multiplier must be between 1.0 and 3.0")
 
+    if settings.reliability_min_winrate is not None and (settings.reliability_min_winrate < 0.50 or settings.reliability_min_winrate > 0.90):
+        raise HTTPException(status_code=400, detail="Reliability win-rate bar must be between 50% and 90%")
+
     updated = update_user_settings(
         user_id,
         starting_balance=settings.starting_balance,
@@ -277,6 +280,8 @@ async def update_settings(settings: TradingSettings, user = Depends(get_current_
         retrain_every=settings.retrain_every,
         profit_risk_multiplier=settings.profit_risk_multiplier,
         adx_threshold=settings.adx_threshold,
+        reliability_gate=settings.reliability_gate,
+        reliability_min_winrate=settings.reliability_min_winrate,
     )
     return {"status": "settings updated", **updated}
 
@@ -410,6 +415,8 @@ async def start_bot(user = Depends(get_current_user)):
         retrain_every=user_settings.get('retrain_every', 50),
         profit_risk_multiplier=user_settings.get('profit_risk_multiplier', 1.5),
         adx_threshold=user_settings.get('adx_threshold', 18),
+        reliability_gate=user_settings.get('reliability_gate', True),
+        reliability_min_winrate=user_settings.get('reliability_min_winrate', 0.60),
         on_trade=on_trade,
         on_signal=on_signal,
         on_performance=on_performance
@@ -818,6 +825,7 @@ def run_auto_optimization_thread(user_id: int, selected_coins: list, starting_ba
                 trailing_stop_pct=float(cfg['trailing_stop_pct']) if 'trailing_stop_pct' in cfg else None,
                 min_confidence=float(cfg['min_confidence']) if 'min_confidence' in cfg else None,
                 adx_threshold=int(cfg['adx_threshold']) if 'adx_threshold' in cfg else None,
+                reliability_min_winrate=float(cfg['reliability_min_winrate']) if 'reliability_min_winrate' in cfg else None,
                 profit_risk_multiplier=float(cfg['profit_risk_multiplier']) if 'profit_risk_multiplier' in cfg else None,
                 trade_cooldown=int(cfg['trade_cooldown']) if 'trade_cooldown' in cfg else None,
             )
@@ -1027,6 +1035,7 @@ async def apply_optimizer_to_bot(run_id: int, user = Depends(get_current_user)):
         trailing_stop_pct=float(best_config['trailing_stop_pct']) if 'trailing_stop_pct'   in best_config else None,
         min_confidence=float(best_config['min_confidence'])      if 'min_confidence'        in best_config else None,
         adx_threshold=int(best_config['adx_threshold'])          if 'adx_threshold'         in best_config else None,
+        reliability_min_winrate=float(best_config['reliability_min_winrate']) if 'reliability_min_winrate' in best_config else None,
     )
 
     return {
