@@ -7,69 +7,108 @@ and taker fees. A signal counts as "reliable" only if its historical win rate
 clears a bar AND its average per-trade return (after fees, in margin terms) is
 positive.
 
-This is a confluence layer: the ML model still decides direction, but an entry
-is only taken / up-sized when a reliable technical signal agrees with it. That
-double-confirmation cuts the loss rate (which protects the compound curve) and
-concentrates capital into the highest-conviction setups.
+This is a confluence gate: the ML model decides direction, but an entry is only
+taken when a reliable technical signal agrees. Double-confirmation cuts the loss
+rate (which protects the compound curve) and concentrates capital into the
+highest-conviction setups.
 
-Adapted from a standalone Lock/Float reliability scorecard, but rebuilt for
-leveraged crypto futures: it never uses signal-flip exits (which have no stop
-loss); every occurrence is scored under the bot's actual SL/TP exit rules.
+Adapted from a standalone reliability scorecard (RSI/Stoch/MACD/Bollinger), but
+rebuilt for leveraged crypto futures: it never uses signal-flip exits (which have
+no stop loss); every occurrence is scored under the bot's actual SL/TP rules.
+
+Indicator periods and over/oversold levels are TUNABLE (defaults are the
+hand-validated GRONKAI levels) and computed internally from OHLCV so the optimizer
+can search them per coin.
 """
 
 import numpy as np
 import pandas as pd
 
+try:
+    import talib
+    _TALIB = True
+except Exception:
+    _TALIB = False
+
 TAKER_FEE = 0.0006  # matches trading_service.TAKER_FEE
+
+# Hand-validated GRONKAI defaults — proven on the standalone crypto scanner.
+DEFAULT_PARAMS = {
+    'rsi_period': 25,
+    'rsi_oversold': 30,
+    'rsi_overbought': 72,
+    'stoch_k': 15,
+    'stoch_d': 15,
+    'stoch_oversold': 24,
+    'stoch_overbought': 90,
+    'bb_period': 180,
+    'bb_stddev': 5,
+}
 
 
 class SignalReliability:
     def __init__(self, leverage=10, stop_loss_pct=0.15, take_profit_pct=0.30,
-                 horizon=24, min_winrate=0.60, min_samples=8):
+                 horizon=24, min_winrate=0.60, min_samples=8, params=None):
         self.leverage = max(1, leverage)
         self.stop_loss_pct = stop_loss_pct      # % of margin
         self.take_profit_pct = take_profit_pct  # % of margin
         self.horizon = horizon                  # candles to let a signal play out
         self.min_winrate = min_winrate
         self.min_samples = min_samples
+        self.params = {**DEFAULT_PARAMS, **(params or {})}
+
+    # ── Indicator computation (own periods, independent of the ML pipeline) ────
+    def _indicators(self, df):
+        """Compute RSI / Stoch / Bollinger with the configured periods. Returns
+        a dict of numpy arrays, or None if talib is unavailable / data too short."""
+        if not _TALIB or len(df) < max(self.params['bb_period'], self.params['rsi_period']) + 5:
+            return None
+        close = df['close'].values.astype(float)
+        high = df['high'].values.astype(float) if 'high' in df else close
+        low = df['low'].values.astype(float) if 'low' in df else close
+        p = self.params
+        try:
+            rsi = talib.RSI(close, timeperiod=int(p['rsi_period']))
+            sk, sd = talib.STOCH(high, low, close,
+                                 fastk_period=int(p['stoch_k']),
+                                 slowk_period=int(p['stoch_d']),
+                                 slowd_period=int(p['stoch_d']))
+            bb_up, _, bb_lo = talib.BBANDS(close, timeperiod=int(p['bb_period']),
+                                           nbdevup=p['bb_stddev'], nbdevdn=p['bb_stddev'])
+        except Exception:
+            return None
+        return {'close': close, 'rsi': rsi, 'stoch_k': sk, 'bb_upper': bb_up, 'bb_lower': bb_lo}
 
     # ── Discrete signal detection ────────────────────────────────────────────
     def _detect(self, df):
         """
-        Return a dict {signal_name: {'dir': +1/-1, 'idx': np.array of candle indices}}.
+        Return {signal_name: {'dir': +1/-1, 'idx': np.array of candle indices}}.
         Each named signal fires at specific candles in one direction.
         """
         out = {}
         n = len(df)
         if n < 30:
             return out
+        ind = self._indicators(df)
+        if ind is None:
+            return out
 
-        rsi = df['rsi'].values if 'rsi' in df else None
-        sk  = df['stoch_k'].values if 'stoch_k' in df else None
-        macd = df['macd'].values if 'macd' in df else None
-        macd_sig = df['macd_signal'].values if 'macd_signal' in df else None
-        close = df['close'].values
-        bb_lo = df['bb_lower'].values if 'bb_lower' in df else None
-        bb_hi = df['bb_upper'].values if 'bb_upper' in df else None
+        rsi, sk, close = ind['rsi'], ind['stoch_k'], ind['close']
+        bb_lo, bb_hi = ind['bb_lower'], ind['bb_upper']
+        p = self.params
 
         def add(name, direction, mask):
+            mask = np.asarray(mask)
             idx = np.where(mask)[0]
             idx = idx[idx < n - 1]  # need at least one forward candle
             if len(idx):
                 out[name] = {'dir': direction, 'idx': idx}
 
-        if rsi is not None:
-            add('RSI Oversold (long)', 1, rsi <= 30)
-            add('RSI Overbought (short)', -1, rsi >= 70)
-        if sk is not None:
-            add('Stoch Oversold (long)', 1, sk <= 20)
-            add('Stoch Overbought (short)', -1, sk >= 80)
-        if macd is not None and macd_sig is not None:
-            cross_up = (np.r_[np.nan, macd[:-1]] < np.r_[np.nan, macd_sig[:-1]]) & (macd > macd_sig)
-            cross_dn = (np.r_[np.nan, macd[:-1]] > np.r_[np.nan, macd_sig[:-1]]) & (macd < macd_sig)
-            add('MACD Cross Up (long)', 1, cross_up)
-            add('MACD Cross Down (short)', -1, cross_dn)
-        if bb_lo is not None and bb_hi is not None:
+        with np.errstate(invalid='ignore'):
+            add('RSI Oversold (long)', 1, rsi <= p['rsi_oversold'])
+            add('RSI Overbought (short)', -1, rsi >= p['rsi_overbought'])
+            add('Stoch Oversold (long)', 1, sk <= p['stoch_oversold'])
+            add('Stoch Overbought (short)', -1, sk >= p['stoch_overbought'])
             add('BB Lower Break (long)', 1, close < bb_lo)
             add('BB Upper Break (short)', -1, close > bb_hi)
 
@@ -103,7 +142,6 @@ class SignalReliability:
             if best * self.leverage >= self.take_profit_pct:
                 return self.take_profit_pct - fee
 
-        # Horizon reached — mark to close
         final = (close[end] - entry) / entry if direction == 1 else (entry - close[end]) / entry
         return final * self.leverage - fee
 
@@ -145,10 +183,8 @@ class SignalReliability:
     def confluence(self, df, card, ml_signal):
         """
         Does a *reliable* signal fire on the latest candle in the same direction
-        as ml_signal? Returns (agrees: bool, boost: float, best_name, best_winrate).
-
-        boost scales with how far the best agreeing signal's win rate clears the
-        bar, capped at 1.5×. No agreement → boost 1.0.
+        as ml_signal? Returns (agrees, boost, best_name, best_winrate).
+        boost is always 1.0 here (gate-only design); kept for interface stability.
         """
         if not card or ml_signal == 0:
             return False, 1.0, None, 0.0
@@ -159,7 +195,6 @@ class SignalReliability:
         for name, info in latest.items():
             if info['dir'] != ml_signal:
                 continue
-            # did this signal fire on the most recent candle?
             if (len(df) - 1) not in set(info['idx'].tolist()):
                 continue
             meta = card.get(name)
@@ -169,8 +204,4 @@ class SignalReliability:
 
         if best_name is None:
             return False, 1.0, None, 0.0
-
-        # win rate above the bar → up to +0.5x size, linearly to a 90% ceiling
-        span = max(0.01, 0.90 - self.min_winrate)
-        boost = 1.0 + 0.5 * min(1.0, (best_wr - self.min_winrate) / span)
-        return True, round(boost, 3), best_name, best_wr
+        return True, 1.0, best_name, best_wr

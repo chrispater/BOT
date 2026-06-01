@@ -417,6 +417,7 @@ async def start_bot(user = Depends(get_current_user)):
         adx_threshold=user_settings.get('adx_threshold', 18),
         reliability_gate=user_settings.get('reliability_gate', True),
         reliability_min_winrate=user_settings.get('reliability_min_winrate', 0.60),
+        reliability_params=user_settings.get('reliability_params'),
         on_trade=on_trade,
         on_signal=on_signal,
         on_performance=on_performance
@@ -633,6 +634,9 @@ async def run_backtest(user = Depends(get_current_user)):
         retrain_every=user_settings.get('retrain_every', 50),
         profit_risk_multiplier=user_settings.get('profit_risk_multiplier', 1.5),
         adx_threshold=user_settings.get('adx_threshold', 18),
+        reliability_gate=user_settings.get('reliability_gate', True),
+        reliability_min_winrate=user_settings.get('reliability_min_winrate', 0.60),
+        reliability_params=user_settings.get('reliability_params'),
     )
 
     # FIX: run_backtest involves ML training (30-120 seconds). Running it directly
@@ -826,6 +830,7 @@ def run_auto_optimization_thread(user_id: int, selected_coins: list, starting_ba
                 min_confidence=float(cfg['min_confidence']) if 'min_confidence' in cfg else None,
                 adx_threshold=int(cfg['adx_threshold']) if 'adx_threshold' in cfg else None,
                 reliability_min_winrate=float(cfg['reliability_min_winrate']) if 'reliability_min_winrate' in cfg else None,
+                reliability_params=cfg.get('reliability_params'),
                 profit_risk_multiplier=float(cfg['profit_risk_multiplier']) if 'profit_risk_multiplier' in cfg else None,
                 trade_cooldown=int(cfg['trade_cooldown']) if 'trade_cooldown' in cfg else None,
             )
@@ -1036,6 +1041,7 @@ async def apply_optimizer_to_bot(run_id: int, user = Depends(get_current_user)):
         min_confidence=float(best_config['min_confidence'])      if 'min_confidence'        in best_config else None,
         adx_threshold=int(best_config['adx_threshold'])          if 'adx_threshold'         in best_config else None,
         reliability_min_winrate=float(best_config['reliability_min_winrate']) if 'reliability_min_winrate' in best_config else None,
+        reliability_params=best_config.get('reliability_params'),
     )
 
     return {

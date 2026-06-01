@@ -109,6 +109,7 @@ class TradingService:
                  retrain_every=50, profit_risk_multiplier=1.5,
                  adx_threshold=18,
                  reliability_gate=True, reliability_min_winrate=0.60,
+                 reliability_params=None,
                  on_trade=None, on_signal=None, on_performance=None):
 
         self.user_id = user_id
@@ -150,6 +151,7 @@ class TradingService:
         self.adx_threshold = max(5, int(adx_threshold))
         self.reliability_gate = bool(reliability_gate)
         self.reliability_min_winrate = float(reliability_min_winrate)
+        self.reliability_params = reliability_params or {}
 
         self._model_file = os.path.join(_MODEL_DIR, f'model_u{user_id}.pkl')
         self._buffer_file = os.path.join(_MODEL_DIR, f'buffer_u{user_id}.pkl')
@@ -201,6 +203,7 @@ class TradingService:
                 take_profit_pct=self.take_profit_pct,
                 horizon=horizon,
                 min_winrate=self.reliability_min_winrate,
+                params=self.reliability_params,
             )
         self._reliability_cards: dict = {}   # symbol → scorecard dict
         self._reliability_card_age: dict = {}  # symbol → cycle count at last build
@@ -1244,6 +1247,20 @@ class TradingService:
         if 'trade_cooldown' in config:
             self.trade_cooldown = int(config['trade_cooldown'])
             changed.append(f"cooldown={self.trade_cooldown}s")
+        if 'reliability_min_winrate' in config:
+            self.reliability_min_winrate = float(config['reliability_min_winrate'])
+            changed.append(f"relwr={self.reliability_min_winrate:.0%}")
+        if 'reliability_params' in config and config['reliability_params']:
+            self.reliability_params = config['reliability_params']
+            changed.append("signal_params")
+        # Resync the live scorer so tuned params/bar take effect immediately and
+        # the cached scorecards are invalidated.
+        if self._reliability is not None:
+            self._reliability.min_winrate = self.reliability_min_winrate
+            if self.reliability_params:
+                self._reliability.params = {**self._reliability.params, **self.reliability_params}
+            self._reliability_cards.clear()
+            self._reliability_card_age.clear()
         logger.info(f"User {self.user_id}: [OPTIMIZER] Config applied: {', '.join(changed) or 'no changes'}")
         return changed
 
@@ -2161,6 +2178,17 @@ class ParameterOptimizer:
     ADX_THRESHOLDS = [8, 10, 13, 16, 18, 20, 23, 25]  # per-token optimized entry trend filter
     RELIABILITY_WINRATES = [0.55, 0.60, 0.65, 0.70, 0.75]  # confluence gate bar — tuned per token
 
+    # GRONKAI-style tunable signal-detector parameter sets. First entry is the
+    # hand-validated default; the rest are sensible variations the optimizer can
+    # try per coin. Tuning these is what pushes the reliable-signal win rate up.
+    RELIABILITY_PARAM_SETS = [
+        {'rsi_period': 25, 'rsi_oversold': 30, 'rsi_overbought': 72, 'stoch_k': 15, 'stoch_d': 15, 'stoch_oversold': 24, 'stoch_overbought': 90, 'bb_period': 180, 'bb_stddev': 5},
+        {'rsi_period': 14, 'rsi_oversold': 30, 'rsi_overbought': 70, 'stoch_k': 14, 'stoch_d': 3,  'stoch_oversold': 20, 'stoch_overbought': 80, 'bb_period': 20,  'bb_stddev': 2},
+        {'rsi_period': 21, 'rsi_oversold': 25, 'rsi_overbought': 75, 'stoch_k': 14, 'stoch_d': 3,  'stoch_oversold': 20, 'stoch_overbought': 80, 'bb_period': 50,  'bb_stddev': 2.5},
+        {'rsi_period': 25, 'rsi_oversold': 35, 'rsi_overbought': 68, 'stoch_k': 21, 'stoch_d': 14, 'stoch_oversold': 30, 'stoch_overbought': 85, 'bb_period': 100, 'bb_stddev': 3},
+        {'rsi_period': 9,  'rsi_oversold': 25, 'rsi_overbought': 75, 'stoch_k': 9,  'stoch_d': 3,  'stoch_oversold': 15, 'stoch_overbought': 85, 'bb_period': 20,  'bb_stddev': 2},
+    ]
+
     MIN_TRADES = 20                  # raised from 15 — more robust signal requirement
     SAMPLES_PER_TIMEFRAME = 120      # raised from 100
 
@@ -2200,6 +2228,8 @@ class ParameterOptimizer:
                 'trailing_stop_pct': random.choice(self.TRAILING_STOPS),
                 'profit_risk_multiplier': random.choice(self.PROFIT_MULTIPLIERS),
                 'adx_threshold': random.choice(self.ADX_THRESHOLDS),
+                'reliability_min_winrate': random.choice(self.RELIABILITY_WINRATES),
+                'reliability_params': random.choice(self.RELIABILITY_PARAM_SETS),
             }
             # Enforce minimum 1.5:1 reward:risk — required for sustainable compounding
             if params['take_profit_pct'] / params['stop_loss_pct'] >= 1.5:
@@ -2314,6 +2344,37 @@ class ParameterOptimizer:
             last_trade_candle = -999
             minutes = bot._get_timeframe_minutes()
             cooldown_candles = max(1, math.ceil(params['trade_cooldown'] / 60 / minutes))
+
+            # Confluence gate map: candle index → set of directions backed by a
+            # reliable signal under THIS combo's leverage/SL/TP/signal-params. Built
+            # once per combo. Fail-open when the (short) optimizer window has too few
+            # reliable signals to be meaningful — the tuned params still carry to live
+            # where the gate is enforced on full history.
+            reliable_map = None
+            if SignalReliability is not None:
+                try:
+                    horizon_o = max(12, int(120 / max(1, minutes)))
+                    _sr = SignalReliability(
+                        leverage=params['leverage'],
+                        stop_loss_pct=params['stop_loss_pct'],
+                        take_profit_pct=params['take_profit_pct'],
+                        horizon=horizon_o,
+                        min_winrate=params.get('reliability_min_winrate', 0.60),
+                        min_samples=4,
+                        params=params.get('reliability_params'),
+                    )
+                    _card = _sr.score(test_df)
+                    _detected = _sr._detect(test_df)
+                    _map = {}
+                    for _name, _info in _detected.items():
+                        _meta = _card.get(_name)
+                        if _meta and _meta['reliable']:
+                            for _idx in _info['idx'].tolist():
+                                _map.setdefault(_idx, set()).add(_info['dir'])
+                    if sum(len(v) for v in _map.values()) >= 8:
+                        reliable_map = _map
+                except Exception:
+                    reliable_map = None
 
             for i in range(len(test_df)):
                 try:
@@ -2476,6 +2537,8 @@ class ParameterOptimizer:
             'trade_cooldown': params.get('trade_cooldown', 300),
             'min_confidence': params.get('min_confidence', 0.65),
             'adx_threshold': params.get('adx_threshold', 18),
+            'reliability_min_winrate': params.get('reliability_min_winrate', 0.60),
+            'reliability_params': params.get('reliability_params'),
         }
         try:
             result = self._run_cached_backtest(tf, p)
@@ -2549,7 +2612,8 @@ class ParameterOptimizer:
                             'trade_cooldown': params['trade_cooldown'],
                             'min_confidence': params['min_confidence'],
                             'adx_threshold': params['adx_threshold'],
-                'reliability_min_winrate': params.get('reliability_min_winrate', 0.60),
+                            'reliability_min_winrate': params.get('reliability_min_winrate', 0.60),
+                            'reliability_params': params.get('reliability_params'),
                             'total_return': round(result['total_return'], 2),
                             'win_rate': round(result['win_rate'], 2),
                             'total_trades': result['total_trades'],

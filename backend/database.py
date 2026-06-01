@@ -1,4 +1,5 @@
 import os
+import json
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from contextlib import contextmanager
@@ -81,6 +82,7 @@ def init_db():
             ('adx_threshold', 'INTEGER', '18'),
             ('reliability_gate', 'BOOLEAN', 'TRUE'),
             ('reliability_min_winrate', 'DECIMAL(5, 4)', '0.60'),
+            ('reliability_params', 'TEXT', 'NULL'),
         ]
         for col, col_type, default in columns_to_add:
             try:
@@ -224,7 +226,7 @@ def get_user_settings(user_id: int):
                    trade_cooldown, min_confidence, timeframe,
                    trailing_stop_pct, max_drawdown_pct, retrain_every,
                    profit_risk_multiplier, simulation_mode, adx_threshold,
-                   reliability_gate, reliability_min_winrate
+                   reliability_gate, reliability_min_winrate, reliability_params
             FROM users WHERE id = %s
         ''', (user_id,))
         row = cur.fetchone()
@@ -247,6 +249,7 @@ def get_user_settings(user_id: int):
                 'adx_threshold': int(row['adx_threshold']) if row.get('adx_threshold') is not None else 18,
                 'reliability_gate': bool(row['reliability_gate']) if row.get('reliability_gate') is not None else True,
                 'reliability_min_winrate': float(row['reliability_min_winrate']) if row.get('reliability_min_winrate') is not None else 0.60,
+                'reliability_params': (json.loads(row['reliability_params']) if row.get('reliability_params') else None),
             }
         return {
             'starting_balance': 10000,
@@ -266,6 +269,7 @@ def get_user_settings(user_id: int):
             'adx_threshold': 18,
             'reliability_gate': True,
             'reliability_min_winrate': 0.60,
+            'reliability_params': None,
         }
 
 def update_user_settings(user_id: int, starting_balance: float = None,
@@ -276,7 +280,8 @@ def update_user_settings(user_id: int, starting_balance: float = None,
                          trailing_stop_pct: float = None, max_drawdown_pct: float = None,
                          retrain_every: int = None, profit_risk_multiplier: float = None,
                          simulation_mode: bool = None, adx_threshold: int = None,
-                         reliability_gate: bool = None, reliability_min_winrate: float = None):
+                         reliability_gate: bool = None, reliability_min_winrate: float = None,
+                         reliability_params: dict = None):
     with get_db() as conn:
         cur = conn.cursor()
         updates = []
@@ -332,6 +337,9 @@ def update_user_settings(user_id: int, starting_balance: float = None,
         if reliability_min_winrate is not None:
             updates.append("reliability_min_winrate = %s")
             values.append(float(reliability_min_winrate))
+        if reliability_params is not None:
+            updates.append("reliability_params = %s")
+            values.append(json.dumps(reliability_params))
         if updates:
             values.append(user_id)
             cur.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = %s", values)
