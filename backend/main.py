@@ -702,7 +702,7 @@ async def run_backtest(user = Depends(get_current_user)):
     # FIX: run_backtest involves ML training (30-120 seconds). Running it directly
     # in an async endpoint blocks the entire event loop — no other requests are
     # served until it finishes. Use run_in_executor to offload to a thread.
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     result = await loop.run_in_executor(None, bot.run_backtest, 60)
     return result
 
@@ -877,6 +877,7 @@ def run_auto_optimization_thread(user_id: int, selected_coins: list, starting_ba
                 'leverage', 'timeframe', 'risk_per_trade', 'stop_loss_pct', 'take_profit_pct',
                 'trailing_stop_pct', 'min_confidence', 'adx_threshold',
                 'profit_risk_multiplier', 'trade_cooldown',
+                'reliability_min_winrate', 'reliability_params',
             ) if k in best}
             target_bot._pending_auto_config = cfg   # hot-applied on next flat cycle
             update_user_settings(
