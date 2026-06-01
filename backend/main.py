@@ -39,6 +39,7 @@ from .auth import (
     decode_token, encrypt_credential, decrypt_credential
 )
 from .trading_service import TradingService, ParameterOptimizer
+from .signal_reliability import SignalReliability
 
 app = FastAPI(title="Crypto Trading Bot API", version="1.0.0")
 security = HTTPBearer()
@@ -509,6 +510,65 @@ async def get_signals(user = Depends(get_current_user)):
     user_id = user['user_id']
     signals = get_user_signals(user_id, limit=20)
     return {"signals": [dict(s) for s in signals] if signals else []}
+
+@app.get("/api/signals/reliability")
+async def get_signal_reliability(user = Depends(get_current_user)):
+    """
+    Per-coin, per-signal-type reliability scorecard: win rate, avg return, sample count,
+    and reliable flag — all scored under the user's actual leverage / SL / TP / fees.
+    Uses the live bot's cached cards when available; otherwise fetches fresh OHLCV.
+    """
+    user_id = user['user_id']
+
+    # Fast path: live bot has already built the cards
+    bot = user_bots.get(user_id)
+    if bot and bot.running and bot._reliability_cards:
+        return {"cards": dict(bot._reliability_cards), "source": "live"}
+
+    # Cold path: build from scratch
+    user_settings = get_user_settings(user_id)
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT encrypted_api_key, encrypted_api_secret, encrypted_api_password "
+            "FROM users WHERE id = %s", (user_id,)
+        )
+        cred_row = cur.fetchone()
+    api_key      = decrypt_credential(cred_row['encrypted_api_key'])      if cred_row and cred_row['encrypted_api_key']      else None
+    api_secret   = decrypt_credential(cred_row['encrypted_api_secret'])   if cred_row and cred_row['encrypted_api_secret']   else None
+    api_password = decrypt_credential(cred_row['encrypted_api_password']) if cred_row and cred_row['encrypted_api_password'] else None
+
+    scorer = SignalReliability(
+        leverage=user_settings.get('leverage', 10),
+        stop_loss_pct=user_settings.get('stop_loss_pct', 0.15),
+        take_profit_pct=user_settings.get('take_profit_pct', 0.30),
+        params=user_settings.get('reliability_params'),
+        min_winrate=user_settings.get('reliability_min_winrate', 0.60),
+    )
+    temp_bot = TradingService(
+        user_id=user_id, api_key=api_key, api_secret=api_secret,
+        api_password=api_password,
+        starting_balance=user_settings['starting_balance'],
+        leverage=user_settings.get('leverage', 10),
+        selected_coins=user_settings.get('selected_coins', []),
+        timeframe=user_settings.get('timeframe', '5m'),
+        reliability_gate=False,
+    )
+
+    def _compute():
+        cards = {}
+        for symbol in (user_settings.get('selected_coins') or []):
+            try:
+                df = temp_bot.fetch_ohlcv(symbol=symbol, limit=500)
+                if df is not None and len(df) >= 60:
+                    cards[symbol] = scorer.score(df)
+            except Exception:
+                pass
+        return cards
+
+    loop = asyncio.get_running_loop()
+    cards = await loop.run_in_executor(None, _compute)
+    return {"cards": cards, "source": "fresh"}
 
 @app.get("/api/strategies")
 async def get_strategies():

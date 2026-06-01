@@ -132,6 +132,7 @@ function App() {
         {currentPage === 'optimize' && (
           <OptimizePage api={api} setError={setError} setSuccess={setSuccess} />
         )}
+        {currentPage === 'reliability' && <SignalReliabilityPage api={api} />}
         {currentPage === 'settings' && (
           <SettingsPage
             api={api}
@@ -151,6 +152,7 @@ function App() {
         <NavItem icon={<ChartIcon />}  label="Trades"    active={currentPage === 'trades'}    onClick={() => setCurrentPage('trades')} />
         <NavItem icon={<BookIcon />}   label="Strategy"  active={currentPage === 'strategy'}  onClick={() => setCurrentPage('strategy')} />
         <NavItem icon={<SearchIcon />} label="Optimize"  active={currentPage === 'optimize'}  onClick={() => setCurrentPage('optimize')} />
+        <NavItem icon={<PulseIcon />}  label="Signals"   active={currentPage === 'reliability'} onClick={() => setCurrentPage('reliability')} />
         <NavItem icon={<GearIcon />}   label="Settings"  active={currentPage === 'settings'}  onClick={() => setCurrentPage('settings')} />
         {isAdmin && (
           <NavItem icon={<ShieldIcon />} label="Admin" active={currentPage === 'admin'} onClick={() => setCurrentPage('admin')} />
@@ -2040,6 +2042,116 @@ function NavItem({ icon, label, active, onClick }) {
 }
 
 /* ─────────────────────────── Icons ─────────────────────────── */
+
+function SignalReliabilityPage({ api }) {
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const load = async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const r = await api.get('/signals/reliability')
+      setData(r.data)
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Failed to load reliability data')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { load() }, [])
+
+  const dirLabel = (dir) => dir === 1 ? 'LONG' : 'SHORT'
+  const dirColor = (dir) => dir === 1 ? '#10b981' : '#ef4444'
+
+  return (
+    <div className="page">
+      <div className="page-header">
+        <h1>Signal Reliability</h1>
+        <button className="btn btn-secondary" onClick={load} disabled={loading}>
+          {loading ? 'Loading…' : 'Refresh'}
+        </button>
+      </div>
+
+      {error && <div className="error-msg">{error}</div>}
+
+      {!loading && data && (
+        <div style={{fontSize: '0.75rem', color: '#6b7280', marginBottom: '1rem'}}>
+          Source: {data.source === 'live' ? 'live bot cache' : 'freshly computed'}
+        </div>
+      )}
+
+      {loading && <div className="loading">Computing scorecards…</div>}
+
+      {!loading && data && Object.entries(data.cards || {}).map(([symbol, card]) => (
+        <div key={symbol} className="card" style={{marginBottom: '1rem'}}>
+          <h3 style={{marginBottom: '0.75rem'}}>{symbol}</h3>
+          {Object.keys(card).length === 0 ? (
+            <p style={{color: '#6b7280', fontSize: '0.85rem'}}>No signals scored (need talib + enough history)</p>
+          ) : (
+            <div style={{overflowX: 'auto'}}>
+              <table style={{width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem'}}>
+                <thead>
+                  <tr style={{borderBottom: '1px solid #374151'}}>
+                    <th style={{textAlign: 'left', padding: '0.4rem 0.5rem', color: '#9ca3af'}}>Signal</th>
+                    <th style={{textAlign: 'center', padding: '0.4rem 0.5rem', color: '#9ca3af'}}>Dir</th>
+                    <th style={{textAlign: 'right', padding: '0.4rem 0.5rem', color: '#9ca3af'}}>Samples</th>
+                    <th style={{textAlign: 'right', padding: '0.4rem 0.5rem', color: '#9ca3af'}}>Win %</th>
+                    <th style={{textAlign: 'right', padding: '0.4rem 0.5rem', color: '#9ca3af'}}>Avg Ret</th>
+                    <th style={{textAlign: 'center', padding: '0.4rem 0.5rem', color: '#9ca3af'}}>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(card).map(([name, meta]) => (
+                    <tr key={name} style={{borderBottom: '1px solid #1f2937'}}>
+                      <td style={{padding: '0.4rem 0.5rem'}}>{name}</td>
+                      <td style={{textAlign: 'center', padding: '0.4rem 0.5rem', color: dirColor(meta.dir), fontWeight: 600}}>
+                        {dirLabel(meta.dir)}
+                      </td>
+                      <td style={{textAlign: 'right', padding: '0.4rem 0.5rem'}}>{meta.count}</td>
+                      <td style={{textAlign: 'right', padding: '0.4rem 0.5rem', color: meta.win_rate >= 0.60 ? '#10b981' : '#f59e0b'}}>
+                        {(meta.win_rate * 100).toFixed(1)}%
+                      </td>
+                      <td style={{textAlign: 'right', padding: '0.4rem 0.5rem', color: meta.avg_return > 0 ? '#10b981' : '#ef4444'}}>
+                        {meta.avg_return >= 0 ? '+' : ''}{(meta.avg_return * 100).toFixed(2)}%
+                      </td>
+                      <td style={{textAlign: 'center', padding: '0.4rem 0.5rem'}}>
+                        <span style={{
+                          padding: '0.15rem 0.5rem', borderRadius: '9999px', fontSize: '0.7rem', fontWeight: 700,
+                          background: meta.reliable ? 'rgba(16,185,129,0.15)' : 'rgba(107,114,128,0.15)',
+                          color: meta.reliable ? '#10b981' : '#6b7280',
+                          border: `1px solid ${meta.reliable ? '#10b981' : '#374151'}`
+                        }}>
+                          {meta.reliable ? 'RELIABLE' : 'WEAK'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      ))}
+
+      {!loading && data && Object.keys(data.cards || {}).length === 0 && (
+        <div className="card" style={{textAlign: 'center', color: '#6b7280', padding: '2rem'}}>
+          No coins configured or no data available yet.
+        </div>
+      )}
+    </div>
+  )
+}
+
+function PulseIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+    </svg>
+  )
+}
 
 function HomeIcon() {
   return (
