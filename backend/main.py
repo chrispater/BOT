@@ -86,6 +86,8 @@ class TradingSettings(BaseModel):
     retrain_every: Optional[int] = None
     profit_risk_multiplier: Optional[float] = None
     adx_threshold: Optional[int] = None
+    reliability_gate: Optional[bool] = None
+    reliability_min_winrate: Optional[float] = None
 
 VALID_TIMEFRAMES = ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '1d']
 
