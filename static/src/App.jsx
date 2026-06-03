@@ -464,9 +464,22 @@ function DashboardPage({ botStatus, api, fetchBotStatus, setError, setSuccess })
           </div>
         </div>
 
+        {/* Daily P&L governor row */}
+        {botStatus?.running && (
+          <div style={{ marginTop: 8, padding: '10px 12px', background: '#0f1318', borderRadius: 10, border: '1px solid rgba(255,255,255,0.07)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 13, color: '#8b95a5' }}>Today</span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: (botStatus.day_pnl || 0) >= 0 ? '#00d4aa' : '#ff4444' }}>
+              {(botStatus.day_pnl || 0) >= 0 ? '+' : ''}{(botStatus.day_pnl_pct || 0).toFixed(2)}%
+            </span>
+            <span style={{ fontSize: 12, color: '#4a5060' }}>
+              Limit: −{((botStatus.daily_loss_limit || 0.08) * 100).toFixed(0)}% · Max pos: {botStatus.max_positions || 3}
+            </span>
+          </div>
+        )}
+
         {/* Kelly fraction + streak row */}
         {botStatus?.kelly_fraction != null && (
-          <div style={{ marginTop: 12, padding: '10px 12px', background: '#0f1318', borderRadius: 10, border: '1px solid rgba(255,255,255,0.07)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ marginTop: 8, padding: '10px 12px', background: '#0f1318', borderRadius: 10, border: '1px solid rgba(255,255,255,0.07)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: 13, color: '#8b95a5' }}>Kelly Fraction</span>
             <span style={{ fontSize: 14, fontWeight: 700, color: '#f5a623' }}>
               {(botStatus.kelly_fraction * 100).toFixed(1)}%
@@ -1524,6 +1537,8 @@ function SettingsPage({ api, logout, setError, setSuccess, botStatus }) {
   const [adxThreshold, setAdxThreshold] = useState(18)
   const [reliabilityGate, setReliabilityGate] = useState(true)
   const [reliabilityWinrate, setReliabilityWinrate] = useState(60)
+  const [dailyLossLimit, setDailyLossLimit] = useState(8)
+  const [maxPositions, setMaxPositions] = useState(3)
 
   const [settingsLoading, setSettingsLoading] = useState(false)
 
@@ -1563,6 +1578,8 @@ function SettingsPage({ api, logout, setError, setSuccess, botStatus }) {
       setAdxThreshold(d.adx_threshold || 18)
       setReliabilityGate(d.reliability_gate !== false)
       setReliabilityWinrate(Math.round((d.reliability_min_winrate || 0.60) * 100))
+      setDailyLossLimit(Math.round((d.daily_loss_limit || 0.08) * 100))
+      setMaxPositions(d.max_positions || 3)
     } catch (e) {}
   }
 
@@ -1595,6 +1612,8 @@ function SettingsPage({ api, logout, setError, setSuccess, botStatus }) {
       multiplier: Math.max(1.0, Math.min(3.0, profitRiskMultiplier)),
       adx:        Math.max(5, Math.min(30, Math.round(adxThreshold))),
       relwr:      Math.max(50, Math.min(90, Math.round(reliabilityWinrate))),
+      dayLoss:    Math.max(1, Math.min(50, Math.round(dailyLossLimit))),
+      maxPos:     Math.max(1, Math.min(10, Math.round(maxPositions))),
     }
 
     setRiskPerTrade(v.risk); setStopLossPct(v.sl); setTakeProfitPct(v.tp)
@@ -1602,6 +1621,7 @@ function SettingsPage({ api, logout, setError, setSuccess, botStatus }) {
     setTrailingStopPct(v.trail); setMaxDrawdownPct(v.drawdown)
     setRetrainEvery(v.retrain); setProfitRiskMultiplier(v.multiplier)
     setAdxThreshold(v.adx); setReliabilityWinrate(v.relwr)
+    setDailyLossLimit(v.dayLoss); setMaxPositions(v.maxPos)
 
     setSettingsLoading(true)
     try {
@@ -1623,6 +1643,8 @@ function SettingsPage({ api, logout, setError, setSuccess, botStatus }) {
         adx_threshold: v.adx,
         reliability_gate: reliabilityGate,
         reliability_min_winrate: v.relwr / 100,
+        daily_loss_limit: v.dayLoss / 100,
+        max_positions: v.maxPos,
       })
       setSuccess('Settings saved')
     } catch (e) {
@@ -1806,6 +1828,22 @@ function SettingsPage({ api, logout, setError, setSuccess, botStatus }) {
           <input type="number" value={reliabilityWinrate} onChange={e => setReliabilityWinrate(Number(e.target.value))} min="50" max="90" step="1" disabled={isBotRunning || !reliabilityGate} style={dis(isBotRunning || !reliabilityGate)} />
           <p style={{ fontSize: 12, color: '#4a5060', marginTop: 4 }}>
             A signal counts as "reliable" only above this historical win rate (measured with your real leverage, SL/TP &amp; fees). The optimizer tunes this per coin. (50–90%)
+          </p>
+        </div>
+
+        <div className="input-group">
+          <label>Daily Loss Limit (%)</label>
+          <input type="number" value={dailyLossLimit} onChange={e => setDailyLossLimit(Number(e.target.value))} min="1" max="50" step="1" disabled={isBotRunning} style={dis(isBotRunning)} />
+          <p style={{ fontSize: 12, color: '#4a5060', marginTop: 4 }}>
+            If the bot loses this % of day-start balance in one calendar day (UTC), it stops opening new positions until midnight. Protects the compound curve from bad-day blowouts. (1–50%, default 8%)
+          </p>
+        </div>
+
+        <div className="input-group">
+          <label>Max Concurrent Positions</label>
+          <input type="number" value={maxPositions} onChange={e => setMaxPositions(Number(e.target.value))} min="1" max="10" step="1" disabled={isBotRunning} style={dis(isBotRunning)} />
+          <p style={{ fontSize: 12, color: '#4a5060', marginTop: 4 }}>
+            Maximum open positions at once across all coins. Keeps correlation risk bounded. Confluent setups also get a 1.25× size boost. (1–10, default 3)
           </p>
         </div>
 

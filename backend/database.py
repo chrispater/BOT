@@ -83,6 +83,8 @@ def init_db():
             ('reliability_gate', 'BOOLEAN', 'TRUE'),
             ('reliability_min_winrate', 'DECIMAL(5, 4)', '0.60'),
             ('reliability_params', 'TEXT', 'NULL'),
+            ('daily_loss_limit', 'DECIMAL(5, 4)', '0.08'),
+            ('max_positions', 'INTEGER', '3'),
         ]
         for col, col_type, default in columns_to_add:
             try:
@@ -226,7 +228,8 @@ def get_user_settings(user_id: int):
                    trade_cooldown, min_confidence, timeframe,
                    trailing_stop_pct, max_drawdown_pct, retrain_every,
                    profit_risk_multiplier, simulation_mode, adx_threshold,
-                   reliability_gate, reliability_min_winrate, reliability_params
+                   reliability_gate, reliability_min_winrate, reliability_params,
+                   daily_loss_limit, max_positions
             FROM users WHERE id = %s
         ''', (user_id,))
         row = cur.fetchone()
@@ -250,6 +253,8 @@ def get_user_settings(user_id: int):
                 'reliability_gate': bool(row['reliability_gate']) if row.get('reliability_gate') is not None else True,
                 'reliability_min_winrate': float(row['reliability_min_winrate']) if row.get('reliability_min_winrate') is not None else 0.60,
                 'reliability_params': (json.loads(row['reliability_params']) if row.get('reliability_params') else None),
+                'daily_loss_limit': float(row['daily_loss_limit']) if row.get('daily_loss_limit') is not None else 0.08,
+                'max_positions': int(row['max_positions']) if row.get('max_positions') is not None else 3,
             }
         return {
             'starting_balance': 10000,
@@ -270,6 +275,8 @@ def get_user_settings(user_id: int):
             'reliability_gate': True,
             'reliability_min_winrate': 0.60,
             'reliability_params': None,
+            'daily_loss_limit': 0.08,
+            'max_positions': 3,
         }
 
 def update_user_settings(user_id: int, starting_balance: float = None,
@@ -281,7 +288,8 @@ def update_user_settings(user_id: int, starting_balance: float = None,
                          retrain_every: int = None, profit_risk_multiplier: float = None,
                          simulation_mode: bool = None, adx_threshold: int = None,
                          reliability_gate: bool = None, reliability_min_winrate: float = None,
-                         reliability_params: dict = None):
+                         reliability_params: dict = None,
+                         daily_loss_limit: float = None, max_positions: int = None):
     with get_db() as conn:
         cur = conn.cursor()
         updates = []
@@ -340,6 +348,12 @@ def update_user_settings(user_id: int, starting_balance: float = None,
         if reliability_params is not None:
             updates.append("reliability_params = %s")
             values.append(json.dumps(reliability_params))
+        if daily_loss_limit is not None:
+            updates.append("daily_loss_limit = %s")
+            values.append(float(daily_loss_limit))
+        if max_positions is not None:
+            updates.append("max_positions = %s")
+            values.append(int(max_positions))
         if updates:
             values.append(user_id)
             cur.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = %s", values)

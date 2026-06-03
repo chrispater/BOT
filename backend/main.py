@@ -88,6 +88,8 @@ class TradingSettings(BaseModel):
     adx_threshold: Optional[int] = None
     reliability_gate: Optional[bool] = None
     reliability_min_winrate: Optional[float] = None
+    daily_loss_limit: Optional[float] = None
+    max_positions: Optional[int] = None
 
 VALID_TIMEFRAMES = ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '1d']
 
@@ -266,6 +268,12 @@ async def update_settings(settings: TradingSettings, user = Depends(get_current_
     if settings.reliability_min_winrate is not None and (settings.reliability_min_winrate < 0.50 or settings.reliability_min_winrate > 0.90):
         raise HTTPException(status_code=400, detail="Reliability win-rate bar must be between 50% and 90%")
 
+    if settings.daily_loss_limit is not None and (settings.daily_loss_limit < 0.01 or settings.daily_loss_limit > 0.50):
+        raise HTTPException(status_code=400, detail="Daily loss limit must be between 1% and 50%")
+
+    if settings.max_positions is not None and (settings.max_positions < 1 or settings.max_positions > 10):
+        raise HTTPException(status_code=400, detail="Max positions must be between 1 and 10")
+
     updated = update_user_settings(
         user_id,
         starting_balance=settings.starting_balance,
@@ -285,6 +293,8 @@ async def update_settings(settings: TradingSettings, user = Depends(get_current_
         adx_threshold=settings.adx_threshold,
         reliability_gate=settings.reliability_gate,
         reliability_min_winrate=settings.reliability_min_winrate,
+        daily_loss_limit=settings.daily_loss_limit,
+        max_positions=settings.max_positions,
     )
     return {"status": "settings updated", **updated}
 
@@ -421,6 +431,8 @@ async def start_bot(user = Depends(get_current_user)):
         reliability_gate=user_settings.get('reliability_gate', True),
         reliability_min_winrate=user_settings.get('reliability_min_winrate', 0.60),
         reliability_params=user_settings.get('reliability_params'),
+        daily_loss_limit=user_settings.get('daily_loss_limit', 0.08),
+        max_positions=user_settings.get('max_positions', 3),
         on_trade=on_trade,
         on_signal=on_signal,
         on_performance=on_performance
@@ -699,6 +711,8 @@ async def run_backtest(user = Depends(get_current_user)):
         reliability_gate=user_settings.get('reliability_gate', True),
         reliability_min_winrate=user_settings.get('reliability_min_winrate', 0.60),
         reliability_params=user_settings.get('reliability_params'),
+        daily_loss_limit=user_settings.get('daily_loss_limit', 0.08),
+        max_positions=user_settings.get('max_positions', 3),
     )
 
     # FIX: run_backtest involves ML training (30-120 seconds). Running it directly

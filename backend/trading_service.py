@@ -111,6 +111,7 @@ class TradingService:
                  adx_threshold=18,
                  reliability_gate=True, reliability_min_winrate=0.60,
                  reliability_params=None,
+                 daily_loss_limit=0.08, max_positions=3,
                  on_trade=None, on_signal=None, on_performance=None):
 
         self.user_id = user_id
@@ -153,6 +154,12 @@ class TradingService:
         self.reliability_gate = bool(reliability_gate)
         self.reliability_min_winrate = float(reliability_min_winrate)
         self.reliability_params = reliability_params or {}
+        self.daily_loss_limit = max(0.01, min(0.50, float(daily_loss_limit)))
+        self.max_positions = max(1, int(max_positions))
+        # Daily P&L governor state (resets at UTC midnight)
+        self._day_pnl: float = 0.0
+        self._day_start_balance: float = starting_balance
+        self._day_date: str = ''   # 'YYYY-MM-DD' of last reset
 
         self._model_file = os.path.join(_MODEL_DIR, f'model_u{user_id}.pkl')
         self._buffer_file = os.path.join(_MODEL_DIR, f'buffer_u{user_id}.pkl')
@@ -792,6 +799,52 @@ class TradingService:
             return True
         return False
 
+    def _reset_daily_if_needed(self):
+        """Reset daily P&L governor at UTC midnight."""
+        today = datetime.utcnow().strftime('%Y-%m-%d')
+        if today != self._day_date:
+            self._day_date = today
+            self._day_pnl = 0.0
+            self._day_start_balance = self.balance
+
+    def _check_daily_governor(self) -> bool:
+        """
+        Returns True (block entry) if:
+          • Daily loss exceeds daily_loss_limit (e.g. −8% of day-start balance).
+        Give-back protection: if today is already up >30%, halve max_positions so
+        we don't bet a great day away — still trades, just less aggressively.
+        """
+        if self._day_start_balance <= 0:
+            return False
+        day_pct = self._day_pnl / self._day_start_balance
+        if day_pct <= -self.daily_loss_limit:
+            logger.warning(
+                f"User {self.user_id}: Daily loss limit hit ({day_pct:.1%}) — "
+                f"halting new entries for today"
+            )
+            return True
+        return False
+
+    def _daily_governor_max_pos(self) -> int:
+        """When today is up >30%, be more conservative to protect gains."""
+        if self._day_start_balance > 0 and self._day_pnl / self._day_start_balance > 0.30:
+            return max(1, self.max_positions // 2)
+        return self.max_positions
+
+    def _entry_ev(self, confidence: float) -> float:
+        """
+        Expected value of the next trade as a fraction of margin, after round-trip
+        taker fees. Positive EV is the only valid reason to enter.
+          EV = p × net_win − (1−p) × net_loss
+          net_win  = take_profit_pct − fee_margin
+          net_loss = stop_loss_pct   + fee_margin
+        """
+        p = max(0.01, min(0.99, float(confidence)))
+        fee_m = 2 * TAKER_FEE * max(1, self.leverage)
+        net_win  = self.take_profit_pct - fee_m
+        net_loss = self.stop_loss_pct   + fee_m
+        return p * net_win - (1 - p) * net_loss
+
     def _kelly_fraction(self) -> float:
         """
         Half-Kelly sizing from the last 50 closed trades.
@@ -832,30 +885,37 @@ class TradingService:
         self._last_dynamic_leverage = result
         return result
 
+    def _kelly_fraction_calibrated(self, confidence: float) -> float:
+        """
+        True half-Kelly using calibrated win probability from predict_proba.
+        kelly = p − (1−p) × (net_loss / net_win)
+        Half-Kelly halves the bet for practical safety (variance reduction).
+        Bounded to [risk_per_trade×0.25 .. risk_per_trade×3].
+        """
+        p = max(0.05, min(0.95, float(confidence)))
+        fee_m = 2 * TAKER_FEE * max(1, self.leverage)
+        net_win  = max(0.001, self.take_profit_pct - fee_m)
+        net_loss = self.stop_loss_pct + fee_m
+        kelly = p - (1 - p) * (net_loss / net_win)
+        half_kelly = kelly * 0.5
+        return max(self.risk_per_trade * 0.25, min(self.risk_per_trade * 3.0, half_kelly))
+
     def _calculate_margin(self, confidence: float = None) -> float:
         """
-        Profit-tier compounding using Kelly fraction, scaled by signal confidence.
-          • Base capital risks at Kelly%.
-          • Profits above starting_balance risk at Kelly% × profit_risk_multiplier.
-          • Confidence multiplier: 0.5x at min_confidence threshold → 1.5x at 90%+ confidence.
-            No-brainer setups get 50% more margin; borderline trades get 50% less.
-        Hard cap: dynamic — min(max(risk_per_trade × 2, 10%), 75%) of current balance.
+        Profit-tier compounding using calibrated half-Kelly sizing.
+          • Base capital: half-Kelly sized to calibrated win probability.
+          • Profit tier: gains above starting_balance compounded at profit_risk_multiplier×.
+        Hard cap: min(max(risk_per_trade×2, 10%), 75%) of current balance.
         """
-        k = self._kelly_fraction()
+        conf = confidence if (confidence is not None and confidence == confidence) else self.min_confidence
+        conf = max(0.0, min(1.0, conf))
+        k = self._kelly_fraction_calibrated(conf) if conf > 0 else self._kelly_fraction()
+
         profit = max(0.0, self.balance - self.starting_balance)
         base_cap = min(self.balance, self.starting_balance)
         base_margin = base_cap * k
         profit_margin = profit * k * self.profit_risk_multiplier
         margin = base_margin + profit_margin
-
-        # Confidence scaling — aggressive on no-brainers, modest on borderlines
-        conf_scale = 1.0
-        if confidence is not None and not (confidence != confidence):  # guard NaN
-            confidence = max(0.0, min(1.0, confidence))  # clamp to [0,1]
-            conf_range = max(0.01, 1.0 - self.min_confidence)
-            conf_scale = 0.5 + (confidence - self.min_confidence) / conf_range
-            conf_scale = max(0.5, min(1.5, conf_scale))
-            margin = margin * conf_scale
 
         # Real-time posture: drawdown scale protects capital (≤1×), adaptive scale
         # leans into a strong recent track record (up to 1.3×). Applied before the
@@ -911,6 +971,13 @@ class TradingService:
             return False
         if vol < 0.65:
             logger.info(f"User {self.user_id}: Entry blocked — volume_ratio {vol:.2f} < 0.65 (thin volume)")
+            return False
+        # Session quality: 02:00–08:00 UTC = Asia-Pac/US gap, historically thin liquidity.
+        # Reduce to 50% volume threshold requirement; don't block entirely so on strong
+        # vol spikes (news) we still catch the move.
+        utc_hour = datetime.utcnow().hour
+        if 2 <= utc_hour < 8 and vol < 0.85:
+            logger.info(f"User {self.user_id}: Entry skipped — low-liquidity session (UTC {utc_hour:02d}h) vol={vol:.2f}")
             return False
         return True
 
@@ -1256,6 +1323,12 @@ class TradingService:
         if 'reliability_params' in config and config['reliability_params']:
             self.reliability_params = config['reliability_params']
             changed.append("signal_params")
+        if 'daily_loss_limit' in config:
+            self.daily_loss_limit = max(0.01, min(0.50, float(config['daily_loss_limit'])))
+            changed.append(f"dayloss={self.daily_loss_limit:.0%}")
+        if 'max_positions' in config:
+            self.max_positions = max(1, int(config['max_positions']))
+            changed.append(f"maxpos={self.max_positions}")
         # Resync the live scorer so tuned params/bar take effect immediately and
         # the cached scorecards are invalidated.
         if self._reliability is not None:
@@ -1361,6 +1434,11 @@ class TradingService:
             'auto_opt_in_progress': self._auto_opt_in_progress,
             'auto_opt_pending': self._pending_auto_config is not None,
             'hours_since_auto_opt': round((time.time() - self._last_auto_opt) / 3600, 1),
+            # Daily P&L governor
+            'day_pnl': round(float(self._day_pnl), 4),
+            'day_pnl_pct': round(self._day_pnl / max(self._day_start_balance, 1) * 100, 2),
+            'daily_loss_limit': self.daily_loss_limit,
+            'max_positions': self.max_positions,
         }
 
     # ── Trade execution ─────────────────────────────────────────────────────
@@ -1561,6 +1639,15 @@ class TradingService:
                 return
             if self._check_performance_floor():
                 return
+            if self._check_daily_governor():
+                return
+            if len(self.positions) >= self._daily_governor_max_pos():
+                logger.info(f"User {self.user_id}: [{symbol}] Entry blocked — max positions ({self.max_positions}) reached")
+                return
+            ev = self._entry_ev(confidence)
+            if ev <= 0:
+                logger.info(f"User {self.user_id}: [{symbol}] Entry skipped — negative EV {ev:.3f}")
+                return
             if not self._entry_filter(signal, df):
                 return
 
@@ -1612,6 +1699,7 @@ class TradingService:
                 fee = (position['entry_price'] + price) * position['size'] * TAKER_FEE
                 pnl = price_change * position['size'] - fee
                 self.total_pnl += pnl
+                self._day_pnl += pnl
                 self.total_trades += 1
                 if pnl > 0:
                     self.winning_trades += 1
@@ -1661,6 +1749,15 @@ class TradingService:
                     logger.warning(f"User {self.user_id}: [{symbol}] Entry blocked — max drawdown limit reached")
                     return
                 if self._check_performance_floor():
+                    return
+                if self._check_daily_governor():
+                    return
+                if len(self.positions) >= self._daily_governor_max_pos():
+                    logger.info(f"User {self.user_id}: [{symbol}] Entry blocked — max positions ({self.max_positions}) reached")
+                    return
+                ev = self._entry_ev(confidence)
+                if ev <= 0:
+                    logger.info(f"User {self.user_id}: [{symbol}] Entry skipped — negative EV {ev:.3f}")
                     return
                 if not self._entry_filter(signal, df):
                     return  # _entry_filter already logs the reason
@@ -1772,6 +1869,7 @@ class TradingService:
                     fee = (position['entry_price'] + price) * position['size'] * TAKER_FEE
                     pnl = price_change * position['size'] - fee
                     self.total_pnl += pnl
+                    self._day_pnl += pnl
                     self.total_trades += 1
                     if pnl > 0:
                         self.winning_trades += 1
@@ -2087,6 +2185,7 @@ class TradingService:
             return None
 
         self._cycle_count += 1
+        self._reset_daily_if_needed()
 
         # Apply any auto-optimized config that's been queued — only fires when flat.
         self.maybe_apply_pending_config()
