@@ -24,17 +24,33 @@ os.environ['LOKY_MAX_CPU_COUNT'] = '1'
 _MODEL_DIR = os.environ.get('BOT_MODEL_DIR', '/tmp/bot_models')
 os.makedirs(_MODEL_DIR, exist_ok=True)
 
+# Some environments (e.g. PythonAnywhere) ship a stale system `dask` whose import
+# crashes against a newer pandas (AttributeError: pandas.core.strings has no
+# attribute 'StringMethods'). LightGBM imports dask.dataframe for its optional
+# Dask integration inside a `try/except ImportError` — but an AttributeError
+# escapes that guard and takes the whole process down on `import lightgbm`. We
+# don't use dask anywhere, so if a broken dask is present, neutralize it to a
+# clean ImportError BEFORE importing lightgbm. Must run before the LightGBM import.
+try:
+    import dask.dataframe  # noqa: F401  (probe: succeeds on a healthy dask)
+except ImportError:
+    pass  # dask simply not installed — LightGBM degrades gracefully on its own
+except Exception:
+    for _m in [m for m in list(sys.modules) if m == 'dask' or m.startswith('dask.')]:
+        del sys.modules[_m]
+    sys.modules['dask'] = None  # makes any later `import dask` raise ImportError
+
 # ── Optional high-performance models (LightGBM > XGBoost > SVM fallback) ──
 try:
     import lightgbm as lgb
     LGBM_AVAILABLE = True
-except ImportError:
+except Exception:        # not just ImportError — a broken optional dep must not be fatal
     LGBM_AVAILABLE = False
 
 try:
     import xgboost as xgb
     XGB_AVAILABLE = True
-except ImportError:
+except Exception:
     XGB_AVAILABLE = False
 
 # ── Optional signal engine (second-opinion ensemble) ──
