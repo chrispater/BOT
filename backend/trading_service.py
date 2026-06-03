@@ -48,12 +48,13 @@ except Exception:
     SIGNAL_ENGINE_AVAILABLE = False
 
 try:
-    from backend.signal_reliability import SignalReliability
+    from backend.signal_reliability import SignalReliability, CONFLUENCE_BOOST
 except Exception:
     try:
-        from signal_reliability import SignalReliability
+        from signal_reliability import SignalReliability, CONFLUENCE_BOOST
     except Exception:
         SignalReliability = None
+        CONFLUENCE_BOOST = 1.25
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(message)s')
 logger = logging.getLogger(__name__)
@@ -915,15 +916,17 @@ class TradingService:
 
     def _reliability_confluence(self, symbol, signal, df):
         """
-        Confluence gate: does a *reliable* technical signal agree with the ML
-        direction on the latest candle? Returns (ok, boost).
-          • ok=True  → a proven signal agrees (or the gate is unavailable).
-          • ok=False → no proven signal backs this entry; caller skips it.
-        Fail-open: if the scorer is missing or errors, returns (True, 1.0) so the
-        bot never freezes on an infrastructure issue.
+        Soft confluence tilt: does a *reliable* technical signal agree with the ML
+        direction in the recent window? Returns (agrees, boost).
+          • agrees=True  → a proven signal backs this entry; boost > 1 so the caller
+            can lean size into the double-confirmed setup.
+          • agrees=False → ML acts alone at normal size (boost = 1.0). Entries are
+            NOT blocked — this is a size tilt, not a gate, so trade frequency stays
+            high while confluence concentrates capital into the best setups.
+        Fail-open: if the scorer is missing or errors, returns (False, 1.0).
         """
         if self._reliability is None or df is None or len(df) < 60:
-            return True, 1.0
+            return False, 1.0
         try:
             self._reliability.leverage = max(1, self.leverage)
             self._reliability.stop_loss_pct = self.stop_loss_pct
@@ -939,11 +942,11 @@ class TradingService:
 
             agrees, boost, name, wr = self._reliability.confluence(df, card, signal)
             if agrees:
-                logger.info(f"User {self.user_id}: [{symbol}] Confluence ✓ {name} (win {wr:.0%})")
+                logger.info(f"User {self.user_id}: [{symbol}] Confluence ✓ {name} (win {wr:.0%}) → size ×{boost:.2f}")
             return agrees, boost
         except Exception as e:
             logger.warning(f"User {self.user_id}: Reliability confluence error: {e}")
-            return True, 1.0
+            return False, 1.0
 
     def _get_market_regime(self) -> str:
         """
@@ -1561,12 +1564,10 @@ class TradingService:
             if not self._entry_filter(signal, df):
                 return
 
-            rel_ok, _ = self._reliability_confluence(symbol, signal, df)
-            if self.reliability_gate and not rel_ok:
-                logger.info(f"User {self.user_id}: [{symbol}] Entry blocked — no reliable signal confluence")
-                return
+            _, rel_boost = self._reliability_confluence(symbol, signal, df)
+            conf_boost = rel_boost if self.reliability_gate else 1.0
 
-            margin = self._calculate_margin(confidence) * self._get_regime_multiplier(signal)
+            margin = self._calculate_margin(confidence) * self._get_regime_multiplier(signal) * conf_boost
             if margin <= 0:
                 return
 
@@ -1664,10 +1665,8 @@ class TradingService:
                 if not self._entry_filter(signal, df):
                     return  # _entry_filter already logs the reason
 
-                rel_ok, _ = self._reliability_confluence(symbol, signal, df)
-                if self.reliability_gate and not rel_ok:
-                    logger.info(f"User {self.user_id}: [{symbol}] Entry blocked — no reliable signal confluence")
-                    return
+                _, rel_boost = self._reliability_confluence(symbol, signal, df)
+                self._pending_conf_boost = rel_boost if self.reliability_gate else 1.0
 
                 # Sync balance from exchange before sizing — catches deposits/settlements
                 # that occurred since the last close so every entry compounds off the
@@ -1683,7 +1682,7 @@ class TradingService:
                     logger.warning(f"User {self.user_id}: Balance fetch failed: {e}")
                     avail = self.balance
 
-                margin = self._calculate_margin(confidence) * self._get_regime_multiplier(signal)
+                margin = self._calculate_margin(confidence) * self._get_regime_multiplier(signal) * getattr(self, '_pending_conf_boost', 1.0)
                 margin = min(margin, avail * 0.95)
 
                 dyn_lev = self._dynamic_leverage(confidence)
@@ -2394,12 +2393,13 @@ class ParameterOptimizer:
                     adx_o = row.get('adx', 25); adx_o = 25.0 if pd.isna(adx_o) else float(adx_o)
                     vol_o = row.get('volume_ratio', 1.0); vol_o = 1.0 if pd.isna(vol_o) else float(vol_o)
                     SLIP = 0.0005  # 5 bps slippage per leg
-                    if position is None and sig_val != 0 and conf >= params['min_confidence'] and adx_o >= params['adx_threshold'] and vol_o >= 0.65 and (reliable_map is None or sig_val in reliable_map.get(i, ())):
+                    rel_boost_o = CONFLUENCE_BOOST if (reliable_map is not None and sig_val in reliable_map.get(i, ())) else 1.0
+                    if position is None and sig_val != 0 and conf >= params['min_confidence'] and adx_o >= params['adx_threshold'] and vol_o >= 0.65:
                         # Confidence-scaled margin (mirrors live _calculate_margin)
                         conf_rng_o = max(0.01, 1.0 - params['min_confidence'])
                         c_scale_o = max(0.5, min(1.5, 0.5 + (conf - params['min_confidence']) / conf_rng_o))
                         risk_ceil_o = min(max(params['risk_per_trade'] * 2.0, 0.10), 0.75)
-                        margin = min(balance * params['risk_per_trade'] * c_scale_o, balance * risk_ceil_o)
+                        margin = min(balance * params['risk_per_trade'] * c_scale_o * rel_boost_o, balance * risk_ceil_o)
                         if margin <= 0 or margin > balance * 0.95:
                             continue
                         notional = margin * params['leverage']

@@ -41,9 +41,15 @@ DEFAULT_PARAMS = {
     'stoch_d': 15,
     'stoch_oversold': 24,
     'stoch_overbought': 90,
-    'bb_period': 180,
-    'bb_stddev': 5,
+    'bb_period': 120,
+    'bb_stddev': 2.5,
 }
+
+# How many of the most-recent candles count as "the signal is firing now". A
+# strict latest-candle-only check almost never coincides with an ML entry, which
+# starves the bot. A small window keeps confluence meaningful without freezing.
+CONFLUENCE_LOOKBACK = 3
+CONFLUENCE_BOOST = 1.25  # size multiplier when a reliable signal backs the entry
 
 
 class SignalReliability:
@@ -182,20 +188,23 @@ class SignalReliability:
     # ── Live confluence check ─────────────────────────────────────────────────
     def confluence(self, df, card, ml_signal):
         """
-        Does a *reliable* signal fire on the latest candle in the same direction
-        as ml_signal? Returns (agrees, boost, best_name, best_winrate).
-        boost is always 1.0 here (gate-only design); kept for interface stability.
+        Does a *reliable* signal fire within the last CONFLUENCE_LOOKBACK candles
+        in the same direction as ml_signal? Returns (agrees, boost, best_name,
+        best_winrate). On agreement boost = CONFLUENCE_BOOST so the caller can lean
+        size into double-confirmed setups; otherwise boost = 1.0. This is a SOFT
+        tilt — the caller does not block non-confluent entries.
         """
         if not card or ml_signal == 0:
             return False, 1.0, None, 0.0
 
+        recent = set(range(max(0, len(df) - CONFLUENCE_LOOKBACK), len(df)))
         latest = self._detect(df)
         best_wr = 0.0
         best_name = None
         for name, info in latest.items():
             if info['dir'] != ml_signal:
                 continue
-            if (len(df) - 1) not in set(info['idx'].tolist()):
+            if not (recent & set(info['idx'].tolist())):
                 continue
             meta = card.get(name)
             if meta and meta['reliable'] and meta['win_rate'] > best_wr:
@@ -204,4 +213,4 @@ class SignalReliability:
 
         if best_name is None:
             return False, 1.0, None, 0.0
-        return True, 1.0, best_name, best_wr
+        return True, CONFLUENCE_BOOST, best_name, best_wr
