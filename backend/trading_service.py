@@ -2205,8 +2205,7 @@ class ParameterOptimizer:
     PROFIT_MULTIPLIERS = [1.0, 1.25, 1.5, 2.0, 2.5]
     ADX_THRESHOLDS = [8, 10, 13, 16, 18, 20, 23, 25]  # per-token optimized entry trend filter
 
-    MIN_TRADES = 20                  # raised from 15 — more robust signal requirement
-    SAMPLES_PER_TIMEFRAME = 120      # raised from 100
+    MIN_TRADES = 20
 
     # Walk-forward validation: train on an expanding window, test on the next
     # out-of-sample segment, and roll forward. A config is only good if it works
@@ -2214,6 +2213,31 @@ class ParameterOptimizer:
     # a curve-fit to one lucky period.
     WALK_FORWARD_FOLDS = 4           # number of out-of-sample test segments
     MIN_WALK_FORWARD_FOLDS = 2       # fall back to single split below this
+
+    # ── Two-phase search budget ────────────────────────────────────────────────
+    SAMPLES_PHASE1      = 50    # broad random sweep per timeframe
+    SAMPLES_PHASE2      = 70    # neighborhood refinement around top-phase1 configs
+    TOP_FOR_REFINEMENT  = 7     # take top-N from phase-1 for neighbor generation
+
+    # ── SL-aware model training ────────────────────────────────────────────────
+    # Labels are trained with bucket-representative params so the model actually
+    # learns the right exit-regime boundary.  Three buckets cover the whole grid.
+    _SL_TIGHT_THRESHOLD  = 0.010   # effective price-move SL < 1%  (tight/high-lev)
+    _SL_MEDIUM_THRESHOLD = 0.030   # effective price-move SL 1%-3% (medium)
+    # ≥ 3% = wide (low-lev / wide-stop)
+    _BUCKET_SL  = {'tight': 0.10, 'medium': 0.15, 'wide': 0.25}
+    _BUCKET_LEV = {'tight': 20,   'medium': 10,   'wide': 5   }
+    _BUCKET_TP  = {'tight': 0.20, 'medium': 0.30, 'wide': 0.50}
+
+    @staticmethod
+    def _sl_bucket(params: dict) -> str:
+        """Map a param set to its SL sensitivity bucket."""
+        ratio = params['stop_loss_pct'] / max(1, params['leverage'])
+        if ratio < ParameterOptimizer._SL_TIGHT_THRESHOLD:
+            return 'tight'
+        if ratio < ParameterOptimizer._SL_MEDIUM_THRESHOLD:
+            return 'medium'
+        return 'wide'
 
     def __init__(self, user_id: int, selected_coins: list, starting_balance: float = 10000,
                  api_key: str = None, api_secret: str = None, api_password: str = None,
@@ -2227,7 +2251,8 @@ class ParameterOptimizer:
         # Never let the optimizer test leverage above the user's configured cap.
         self._max_leverage = max_leverage
         self.ohlcv_cache = {}
-        self.model_cache = {}
+        self.labeled_cache = {}   # (symbol, timeframe, bucket) → labeled df
+        self.model_cache = {}     # (symbol, timeframe, bucket) → fold artifacts
         self.progress = 0
         self.total_tests = 0
         self.current_test = 0
@@ -2257,7 +2282,42 @@ class ParameterOptimizer:
                 return params
         return params  # fallback (extremely rare after 50 attempts)
 
+    def _neighbour_params(self, base: dict) -> list:
+        """All valid one-step perturbations of a config (one param at a time ±1 step).
+        Used in phase-2 of the search to concentrate budget near high-scoring configs
+        found in phase-1, rather than continuing to throw uniform random darts."""
+        import random as _random
+        valid_leverages = [l for l in self.LEVERAGES
+                           if self._max_leverage is None or l <= self._max_leverage]
+        spaces = [
+            ('leverage',              valid_leverages),
+            ('risk_per_trade',        self.RISK_PER_TRADE),
+            ('stop_loss_pct',         self.STOP_LOSS),
+            ('take_profit_pct',       self.TAKE_PROFIT),
+            ('trade_cooldown',        self.COOLDOWNS),
+            ('min_confidence',        self.CONFIDENCES),
+            ('trailing_stop_pct',     self.TRAILING_STOPS),
+            ('profit_risk_multiplier', self.PROFIT_MULTIPLIERS),
+            ('adx_threshold',         self.ADX_THRESHOLDS),
+        ]
+        results = []
+        for key, space in spaces:
+            val = base.get(key)
+            if val not in space:
+                continue
+            idx = space.index(val)
+            for new_idx in (idx - 1, idx + 1):
+                if 0 <= new_idx < len(space):
+                    candidate = {**base, key: space[new_idx]}
+                    if candidate['take_profit_pct'] / candidate['stop_loss_pct'] >= 1.5:
+                        results.append(candidate)
+        _random.shuffle(results)
+        return results
+
     def _cache_ohlcv(self, symbol: str, timeframe: str, days: int = 30):
+        """Fetch OHLCV and compute indicators — labels are NOT applied here.
+        Labels are bucket-specific (different SL/lev → different exit boundaries)
+        and are applied in _get_labeled_df."""
         key = (symbol, timeframe)
         if key not in self.ohlcv_cache:
             bot = TradingService(
@@ -2270,10 +2330,36 @@ class ParameterOptimizer:
             df = bot.fetch_ohlcv(symbol=symbol, limit=min(periods, LOOKBACK_PERIODS * 3))
             if df is not None:
                 df = bot.calculate_indicators(df)
-                df = bot.create_labels(df)
-                df = df.dropna()
+                # Drop only rows with missing price/volume; keep label NaNs for now
+                df = df.dropna(subset=['close', 'volume', 'open', 'high', 'low'])
             self.ohlcv_cache[key] = df
         return self.ohlcv_cache.get(key)
+
+    def _get_labeled_df(self, symbol: str, timeframe: str, bucket: str):
+        """Apply create_labels with bucket-representative SL/leverage, then dropna.
+        Cached per (symbol, timeframe, bucket) — label quality matches the exit
+        regime the model is being asked to predict."""
+        key = (symbol, timeframe, bucket)
+        if key in self.labeled_cache:
+            return self.labeled_cache[key]
+        raw_df = self.ohlcv_cache.get((symbol, timeframe))
+        if raw_df is None:
+            self.labeled_cache[key] = None
+            return None
+        label_bot = TradingService(
+            user_id=self.user_id,
+            starting_balance=self.starting_balance,
+            selected_coins=[symbol],
+            timeframe=timeframe,
+            stop_loss_pct=self._BUCKET_SL[bucket],
+            leverage=self._BUCKET_LEV[bucket],
+            take_profit_pct=self._BUCKET_TP[bucket],
+        )
+        df = raw_df.copy()
+        df = label_bot.create_labels(df)
+        df = df.dropna()
+        self.labeled_cache[key] = df
+        return df
 
     def _fit_fold(self, bot, train_df, test_df, is_tree):
         """Train one walk-forward fold and return its cached artifacts, or None if
@@ -2312,53 +2398,54 @@ class ParameterOptimizer:
             return None
 
     def _train_and_cache_model(self, symbol: str, timeframe: str, days: int = 30):
-        """
-        Build an expanding-window walk-forward ensemble for (symbol, timeframe):
-        split the history into WALK_FORWARD_FOLDS+1 contiguous blocks and, for each
-        fold k, train on blocks[0..k] and test on block[k+1]. Models are cached once
-        here and reused across every param combo in the search.
-        """
-        key = (symbol, timeframe)
-        if key in self.model_cache:
-            return
+        """Train one walk-forward ensemble per SL bucket for (symbol, timeframe).
 
-        df = self._cache_ohlcv(symbol, timeframe, days)
-        if df is None or len(df) < 100:
-            self.model_cache[key] = None
-            return
-
-        bot = TradingService(
+        Labels differ by bucket (different SL/leverage → different exit boundaries),
+        so the model for each bucket actually learns the right target for the param
+        combos that land in that bucket.  Three models per (symbol, tf) instead of
+        one: ~3× training time, but results translate to production correctly.
+        """
+        # Shared feature/model bot — prepare_features and _build_model don't depend on SL/lev
+        feature_bot = TradingService(
             user_id=self.user_id, starting_balance=self.starting_balance,
             selected_coins=[symbol], timeframe=timeframe,
         )
         is_tree = LGBM_AVAILABLE or XGB_AVAILABLE
 
-        n_blocks = self.WALK_FORWARD_FOLDS + 1
-        block = len(df) // n_blocks
-        folds = []
-        if block >= 40:  # need a usable block size for both train and test
-            for k in range(self.WALK_FORWARD_FOLDS):
-                train_df = df.iloc[: (k + 1) * block]
-                test_df  = df.iloc[(k + 1) * block : (k + 2) * block]
-                if len(test_df) < 20:
-                    continue
-                fold = self._fit_fold(bot, train_df, test_df, is_tree)
-                if fold is not None:
-                    folds.append(fold)
+        for bucket in ('tight', 'medium', 'wide'):
+            key = (symbol, timeframe, bucket)
+            if key in self.model_cache:
+                continue
 
-        # Fall back to the classic single 50/50 split if walk-forward couldn't
-        # produce enough folds (short history / sparse signals).
-        if len(folds) < self.MIN_WALK_FORWARD_FOLDS:
-            half = len(df) // 2
-            fold = self._fit_fold(bot, df.iloc[:half], df.iloc[half:], is_tree)
-            folds = [fold] if fold is not None else []
+            df = self._get_labeled_df(symbol, timeframe, bucket)
+            if df is None or len(df) < 100:
+                self.model_cache[key] = None
+                continue
 
-        if not folds:
-            self.model_cache[key] = None
-            return
+            n_blocks = self.WALK_FORWARD_FOLDS + 1
+            block = len(df) // n_blocks
+            folds = []
+            if block >= 40:
+                for k in range(self.WALK_FORWARD_FOLDS):
+                    train_df = df.iloc[: (k + 1) * block]
+                    test_df  = df.iloc[(k + 1) * block : (k + 2) * block]
+                    if len(test_df) < 20:
+                        continue
+                    fold = self._fit_fold(feature_bot, train_df, test_df, is_tree)
+                    if fold is not None:
+                        folds.append(fold)
 
-        self.model_cache[key] = {'folds': folds, 'temp_bot': bot, 'is_tree': is_tree}
-        logger.info(f"Optimizer: Trained {len(folds)} walk-forward fold(s) for {symbol} {timeframe}")
+            if len(folds) < self.MIN_WALK_FORWARD_FOLDS:
+                half = len(df) // 2
+                fold = self._fit_fold(feature_bot, df.iloc[:half], df.iloc[half:], is_tree)
+                folds = [fold] if fold is not None else []
+
+            if not folds:
+                self.model_cache[key] = None
+                continue
+
+            self.model_cache[key] = {'folds': folds, 'temp_bot': feature_bot, 'is_tree': is_tree}
+            logger.info(f"Optimizer: {symbol} {timeframe} [{bucket}] — {len(folds)} fold(s)")
 
     def _backtest_segment(self, fold, bot, params, start_balance):
         """Backtest one walk-forward fold's out-of-sample test_df under `params`.
@@ -2468,37 +2555,47 @@ class ParameterOptimizer:
     def _run_cached_backtest(self, timeframe: str, params: dict):
         """
         Walk-forward backtest: for each coin, run every cached fold's out-of-sample
-        segment, then aggregate. Per-fold returns feed a consistency metric so the
-        score can reward configs that work across ALL forward windows, not just one.
+        segment, then aggregate. Uses the bucket-matched model so the signal was
+        trained on the same exit-regime we're now testing. Per-fold returns are
+        MARGINAL (balance change within the fold, not cumulative from start) so the
+        walk-forward consistency metric is meaningful across all folds.
         """
+        bucket = self._sl_bucket(params)
         all_trades = []
         total_balance = 0
         overall_max_dd = 0
         balance_per_coin = self.starting_balance / len(self.selected_coins)
 
-        # fold index → aggregated end-balance across coins (for consistency scoring)
-        n_folds = 0
-        fold_start_total = 0.0
-        fold_end_total = {}
+        # fold index → marginal P&L and starting balance (for consistency scoring)
+        fold_pnl:     dict = {}
+        fold_start_b: dict = {}
 
         for symbol in self.selected_coins:
-            cached = self.model_cache.get((symbol, timeframe))
+            # Pick the bucket-matched model; fall back to adjacent buckets rather
+            # than skipping the coin entirely.
+            cached = self.model_cache.get((symbol, timeframe, bucket))
+            if cached is None:
+                for fb in ('medium', 'tight', 'wide'):
+                    cached = self.model_cache.get((symbol, timeframe, fb))
+                    if cached is not None:
+                        break
             if cached is None:
                 total_balance += balance_per_coin
                 continue
 
             bot = cached['temp_bot']
             folds = cached['folds']
-            n_folds = max(n_folds, len(folds))
-            # Compound each fold off the previous fold's ending balance — this is a
-            # true forward simulation, not N independent restarts.
+            # Compound each fold off the previous fold's ending balance — true
+            # forward simulation, not N independent restarts.
             balance = balance_per_coin
-            fold_start_total += balance_per_coin
             for fi, fold in enumerate(folds):
+                b_before = balance
                 trades, balance, fold_dd = self._backtest_segment(fold, bot, params, balance)
                 all_trades.extend(trades)
                 overall_max_dd = max(overall_max_dd, fold_dd)
-                fold_end_total[fi] = fold_end_total.get(fi, 0.0) + balance - balance_per_coin
+                # Marginal: how much did THIS fold earn relative to its own start?
+                fold_pnl[fi]     = fold_pnl.get(fi, 0.0)     + (balance - b_before)
+                fold_start_b[fi] = fold_start_b.get(fi, 0.0) + b_before
             total_balance += balance
 
         total_trades = len(all_trades)
@@ -2512,11 +2609,14 @@ class ParameterOptimizer:
             tret = [t['pnl'] / max(self.starting_balance, 1) for t in all_trades]
             sharpe_ratio = float(np.mean(tret) / (np.std(tret) + 1e-10) * np.sqrt(total_trades))
 
-        # Walk-forward consistency: per-fold % return (across all coins), then the
-        # fraction of folds that were profitable and the spread of returns.
-        fold_returns = []
-        for fi in sorted(fold_end_total.keys()):
-            fold_returns.append(fold_end_total[fi] / max(self.starting_balance, 1) * 100)
+        # Walk-forward consistency: per-fold MARGINAL % return across all coins.
+        # Marginal means we measure how much each fold earned relative to its own
+        # starting balance — not cumulative from the beginning — so a bad fold can't
+        # hide behind the gains of earlier folds.
+        fold_returns = [
+            round(fold_pnl.get(fi, 0.0) / max(fold_start_b.get(fi, 1.0), 1.0) * 100, 3)
+            for fi in sorted(fold_pnl.keys())
+        ]
         if fold_returns:
             profitable_folds = sum(1 for r in fold_returns if r > 0)
             wf_consistency = profitable_folds / len(fold_returns)
@@ -2546,43 +2646,53 @@ class ParameterOptimizer:
     def _calculate_score(self, result: dict) -> float:
         if result['total_trades'] < self.MIN_TRADES:
             return -999
-        if result['total_return'] < 0:
+        if result['win_rate'] < 42:        # below this it's statistical noise
+            return -999
+        if result['total_return'] < -5:    # small tolerance for rounding / fee noise
             return -999
 
-        # Walk-forward gate: with multiple folds, reject configs that take a
-        # meaningful loss in any forward window. A durable edge holds up
-        # out-of-sample — a curve-fit posts one spectacular fold and bleeds in the
-        # rest. A small wobble (>-3%) is tolerated; a real forward loss is not.
+        # Walk-forward gate: reject configs where ANY marginal forward fold lost more
+        # than 5% (uses true marginal fold returns, so a bad fold can't hide behind
+        # earlier compounding). Relaxed from -3% to -5% to reflect that fold windows
+        # are ~7.5 days of test data — a single streak of losing trades is enough to
+        # breach -3% even in a durable regime.
         wf_folds = result.get('wf_folds', 0)
-        if wf_folds >= self.MIN_WALK_FORWARD_FOLDS and result.get('wf_worst_fold', 0) < -3.0:
+        if wf_folds >= self.MIN_WALK_FORWARD_FOLDS and result.get('wf_worst_fold', 0) < -5.0:
             return -999
 
-        roi_score     = min(result['total_return'] / 100, 1.0)
-        winrate_score = result['win_rate'] / 100
-        trade_score   = min(result['total_trades'] / 100, 1.0)
+        # Log-scale ROI: properly differentiates 50% vs 200% vs 400% returns.
+        # Calibrated so ~300% total return → roi_score = 1.0.  Linear capping at
+        # 100% was discarding the most interesting high-leverage regimes.
+        roi_score = min(math.log1p(max(0, result['total_return'])) / math.log1p(300), 1.0)
 
-        # Calmar ratio: return / max_drawdown — key metric for sustainable compounding
+        # Win rate normalized: 42% floor → 0, 90% → 1
+        winrate_score = max(0.0, (result['win_rate'] - 42) / 48)
+
+        # Trade activity: enough signal to be meaningful, but not overfit to high-freq
+        trade_score = min(result['total_trades'] / 80, 1.0)
+
+        # Calmar ratio: return / max_drawdown — the compounding metric.
+        # Most important single number: a 100% return with 5% drawdown beats a
+        # 300% return with 60% drawdown for sustainable compounding.
         max_dd = max(result.get('max_drawdown', 0.1), 0.1)
-        calmar_score = min(result['total_return'] / max_dd, 5.0) / 5.0
+        calmar_score = min(result['total_return'] / max_dd, 8.0) / 8.0
 
-        # Sharpe ratio: consistency and quality of returns (capped at Sharpe 3.0 → 1.0)
+        # Sharpe ratio: trade-level consistency (capped at Sharpe 3.0 → 1.0)
         sharpe_score = max(0.0, min(result.get('sharpe_ratio', 0) / 3.0, 1.0))
 
         # Walk-forward consistency: fraction of forward folds that were profitable.
         wf_score = result.get('wf_consistency', 0.0) if wf_folds >= self.MIN_WALK_FORWARD_FOLDS else 0.5
 
-        # Penalise drawdowns above 15%
         dd_penalty = max(0.0, (result.get('max_drawdown', 0) - 15) / 100)
-        # Penalise high spread across folds — unstable configs are fragile live.
         wf_penalty = min(0.15, result.get('wf_return_std', 0.0) / 200) if wf_folds >= self.MIN_WALK_FORWARD_FOLDS else 0.0
 
         return (
-            0.25 * roi_score
-            + 0.15 * winrate_score
-            + 0.10 * trade_score
-            + 0.20 * calmar_score
-            + 0.10 * sharpe_score
-            + 0.20 * wf_score
+            0.20 * roi_score        # log-scale ROI
+            + 0.10 * winrate_score  # win rate (floored at 42%)
+            + 0.05 * trade_score    # activity (secondary signal)
+            + 0.30 * calmar_score   # return/drawdown — primary compounding metric
+            + 0.15 * sharpe_score   # risk-adjusted consistency
+            + 0.20 * wf_score       # forward generalization
             - dd_penalty
             - wf_penalty
         )
@@ -2617,22 +2727,28 @@ class ParameterOptimizer:
         random.seed(42)
 
         self.results = []
-        self.total_tests = len(self.TIMEFRAMES) * self.SAMPLES_PER_TIMEFRAME
+        total_per_tf = self.SAMPLES_PHASE1 + self.SAMPLES_PHASE2
+        self.total_tests = len(self.TIMEFRAMES) * total_per_tf
         self.current_test = 0
 
-        logger.info(f"Starting optimization: {self.total_tests} tests across {len(self.TIMEFRAMES)} timeframes")
+        logger.info(
+            f"Starting optimization: {self.total_tests} tests across {len(self.TIMEFRAMES)} "
+            f"timeframes ({self.SAMPLES_PHASE1} random + {self.SAMPLES_PHASE2} guided per tf)"
+        )
 
-        # Phase 1: fetch data once per (coin, timeframe)
+        # ── Step 1: fetch OHLCV + indicators, one (coin, tf) pair ─────────────
         total_fetches = len(self.TIMEFRAMES) * len(self.selected_coins)
         fetch_count = 0
-        self.ohlcv_cache = {}
+        self.ohlcv_cache  = {}
+        self.labeled_cache = {}
+        self.model_cache  = {}
         self.phase = 'fetching'
 
         for tf_idx, timeframe in enumerate(self.TIMEFRAMES):
             logger.info(f"Fetching data: {timeframe} ({tf_idx + 1}/{len(self.TIMEFRAMES)})")
             for symbol in self.selected_coins:
                 fetch_count += 1
-                self.progress = (fetch_count / total_fetches) * 20
+                self.progress = (fetch_count / total_fetches) * 15
                 if progress_callback:
                     progress_callback(self.progress)
                 try:
@@ -2641,55 +2757,102 @@ class ParameterOptimizer:
                 except Exception as e:
                     logger.warning(f"Failed to fetch {symbol} {timeframe}: {e}")
 
-        logger.info(f"Phase 1 complete: {len(self.ohlcv_cache)} datasets cached")
+        logger.info(f"Data fetch complete: {len(self.ohlcv_cache)} datasets cached")
 
-        # Phase 2: train once per (coin, timeframe), then sweep params
-        self.model_cache = {}
-        self.phase = 'testing'
-
+        # ── Step 2: train one model per (coin, tf, bucket) ────────────────────
+        self.phase = 'training'
+        total_models = len(self.TIMEFRAMES) * len(self.selected_coins)
+        model_count = 0
         for tf_idx, timeframe in enumerate(self.TIMEFRAMES):
-            logger.info(f"Optimizing timeframe: {timeframe} ({tf_idx + 1}/{len(self.TIMEFRAMES)})")
             for symbol in self.selected_coins:
-                self._train_and_cache_model(symbol, timeframe, days)
-
-            for sample_idx in range(self.SAMPLES_PER_TIMEFRAME):
-                self.current_test += 1
-                self.progress = 20 + (self.current_test / self.total_tests) * 80
+                model_count += 1
+                self.progress = 15 + (model_count / total_models) * 20
                 if progress_callback:
                     progress_callback(self.progress)
-                if sample_idx % 50 == 0:
-                    _time.sleep(0.01)
+                self._train_and_cache_model(symbol, timeframe, days)
 
+        logger.info(f"Models trained: {sum(1 for v in self.model_cache.values() if v is not None)} valid buckets")
+
+        # ── Step 3: two-phase param search ────────────────────────────────────
+        self.phase = 'testing'
+
+        def _record(params, result, score):
+            self.results.append({
+                'timeframe':             timeframe,
+                'leverage':              params['leverage'],
+                'risk_per_trade':        params['risk_per_trade'],
+                'stop_loss_pct':         params['stop_loss_pct'],
+                'take_profit_pct':       params['take_profit_pct'],
+                'trailing_stop_pct':     params['trailing_stop_pct'],
+                'profit_risk_multiplier': params['profit_risk_multiplier'],
+                'trade_cooldown':        params['trade_cooldown'],
+                'min_confidence':        params['min_confidence'],
+                'adx_threshold':         params['adx_threshold'],
+                'total_return':   round(result['total_return'], 2),
+                'win_rate':       round(result['win_rate'], 2),
+                'total_trades':   result['total_trades'],
+                'total_pnl':      round(result['total_pnl'], 2),
+                'max_drawdown':   round(result.get('max_drawdown', 0), 2),
+                'wf_folds':       result.get('wf_folds', 0),
+                'wf_consistency': result.get('wf_consistency', 0.0),
+                'wf_worst_fold':  result.get('wf_worst_fold', 0.0),
+                'fold_returns':   result.get('fold_returns', []),
+                'score':          round(score, 4),
+            })
+
+        for tf_idx, timeframe in enumerate(self.TIMEFRAMES):
+            logger.info(f"Searching timeframe: {timeframe} ({tf_idx + 1}/{len(self.TIMEFRAMES)})")
+
+            # Phase A: broad random sweep
+            phase1_hits = []
+            for _ in range(self.SAMPLES_PHASE1):
+                self.current_test += 1
+                self.progress = 35 + (self.current_test / self.total_tests) * 65
+                if progress_callback:
+                    progress_callback(self.progress)
                 params = self._random_params()
                 try:
                     result = self._run_cached_backtest(timeframe, params)
-                    score = self._calculate_score(result)
+                    score  = self._calculate_score(result)
                     if score > -999:
-                        self.results.append({
-                            'timeframe': timeframe,
-                            'leverage': params['leverage'],
-                            'risk_per_trade': params['risk_per_trade'],
-                            'stop_loss_pct': params['stop_loss_pct'],
-                            'take_profit_pct': params['take_profit_pct'],
-                            'trailing_stop_pct': params['trailing_stop_pct'],
-                            'profit_risk_multiplier': params['profit_risk_multiplier'],
-                            'trade_cooldown': params['trade_cooldown'],
-                            'min_confidence': params['min_confidence'],
-                            'adx_threshold': params['adx_threshold'],
-                            'total_return': round(result['total_return'], 2),
-                            'win_rate': round(result['win_rate'], 2),
-                            'total_trades': result['total_trades'],
-                            'total_pnl': round(result['total_pnl'], 2),
-                            'max_drawdown': round(result.get('max_drawdown', 0), 2),
-                            'wf_folds': result.get('wf_folds', 0),
-                            'wf_consistency': result.get('wf_consistency', 0.0),
-                            'wf_worst_fold': result.get('wf_worst_fold', 0.0),
-                            'fold_returns': result.get('fold_returns', []),
-                            'score': round(score, 4),
-                        })
+                        _record(params, result, score)
+                        phase1_hits.append((score, params))
                 except Exception as e:
-                    logger.warning(f"Backtest failed: {e}")
-                    continue
+                    logger.debug(f"Backtest failed: {e}")
+
+            # Phase B: neighborhood refinement around the top-scoring configs
+            phase1_hits.sort(key=lambda x: x[0], reverse=True)
+            seen = set()
+            candidates = []
+            for _, top_params in phase1_hits[:self.TOP_FOR_REFINEMENT]:
+                for nb in self._neighbour_params(top_params):
+                    key = (nb['leverage'], nb['stop_loss_pct'], nb['take_profit_pct'],
+                           nb['trade_cooldown'], nb['min_confidence'])
+                    if key not in seen:
+                        seen.add(key)
+                        candidates.append(nb)
+
+            # Pad with fresh random samples if there weren't enough valid neighbours
+            while len(candidates) < self.SAMPLES_PHASE2:
+                candidates.append(self._random_params())
+
+            for params in candidates[:self.SAMPLES_PHASE2]:
+                self.current_test += 1
+                self.progress = 35 + (self.current_test / self.total_tests) * 65
+                if progress_callback:
+                    progress_callback(self.progress)
+                try:
+                    result = self._run_cached_backtest(timeframe, params)
+                    score  = self._calculate_score(result)
+                    if score > -999:
+                        _record(params, result, score)
+                except Exception as e:
+                    logger.debug(f"Backtest failed: {e}")
+
+            logger.info(
+                f"  {timeframe}: {sum(1 for r in self.results if r['timeframe'] == timeframe)} "
+                f"valid configs found so far"
+            )
 
         self.results.sort(key=lambda x: x['score'], reverse=True)
         top_results = self.results[:20]

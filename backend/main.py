@@ -816,8 +816,11 @@ def run_auto_optimization_thread(user_id: int, selected_coins: list, starting_ba
         )
 
         if best and _still_live() and _auto_config_beats_current(optimizer, best, current_config):
+            # Structural params come from the optimizer.
+            # risk_per_trade, daily_loss_limit, and max_positions are user-controlled
+            # sizing/safety knobs — autopilot must NOT override them.
             cfg = {k: best[k] for k in (
-                'leverage', 'timeframe', 'risk_per_trade', 'stop_loss_pct', 'take_profit_pct',
+                'leverage', 'timeframe', 'stop_loss_pct', 'take_profit_pct',
                 'trailing_stop_pct', 'min_confidence', 'adx_threshold',
                 'profit_risk_multiplier', 'trade_cooldown',
             ) if k in best}
@@ -826,7 +829,6 @@ def run_auto_optimization_thread(user_id: int, selected_coins: list, starting_ba
                 user_id,
                 leverage=int(cfg['leverage']) if 'leverage' in cfg else None,
                 timeframe=str(cfg['timeframe']) if 'timeframe' in cfg else None,
-                risk_per_trade=float(cfg['risk_per_trade']) if 'risk_per_trade' in cfg else None,
                 stop_loss_pct=float(cfg['stop_loss_pct']) if 'stop_loss_pct' in cfg else None,
                 take_profit_pct=float(cfg['take_profit_pct']) if 'take_profit_pct' in cfg else None,
                 trailing_stop_pct=float(cfg['trailing_stop_pct']) if 'trailing_stop_pct' in cfg else None,
