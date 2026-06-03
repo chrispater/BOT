@@ -132,7 +132,6 @@ function App() {
         {currentPage === 'optimize' && (
           <OptimizePage api={api} setError={setError} setSuccess={setSuccess} />
         )}
-        {currentPage === 'reliability' && <SignalReliabilityPage api={api} />}
         {currentPage === 'settings' && (
           <SettingsPage
             api={api}
@@ -152,7 +151,6 @@ function App() {
         <NavItem icon={<ChartIcon />}  label="Trades"    active={currentPage === 'trades'}    onClick={() => setCurrentPage('trades')} />
         <NavItem icon={<BookIcon />}   label="Strategy"  active={currentPage === 'strategy'}  onClick={() => setCurrentPage('strategy')} />
         <NavItem icon={<SearchIcon />} label="Optimize"  active={currentPage === 'optimize'}  onClick={() => setCurrentPage('optimize')} />
-        <NavItem icon={<PulseIcon />}  label="Signals"   active={currentPage === 'reliability'} onClick={() => setCurrentPage('reliability')} />
         <NavItem icon={<GearIcon />}   label="Settings"  active={currentPage === 'settings'}  onClick={() => setCurrentPage('settings')} />
         {isAdmin && (
           <NavItem icon={<ShieldIcon />} label="Admin" active={currentPage === 'admin'} onClick={() => setCurrentPage('admin')} />
@@ -1553,8 +1551,6 @@ function SettingsPage({ api, logout, setError, setSuccess, botStatus }) {
   const [retrainEvery, setRetrainEvery] = useState(50)
   const [profitRiskMultiplier, setProfitRiskMultiplier] = useState(1.5)
   const [adxThreshold, setAdxThreshold] = useState(18)
-  const [reliabilityGate, setReliabilityGate] = useState(true)
-  const [reliabilityWinrate, setReliabilityWinrate] = useState(60)
   const [dailyLossLimit, setDailyLossLimit] = useState(8)
   const [maxPositions, setMaxPositions] = useState(3)
 
@@ -1594,8 +1590,6 @@ function SettingsPage({ api, logout, setError, setSuccess, botStatus }) {
       setRetrainEvery(d.retrain_every || 50)
       setProfitRiskMultiplier(d.profit_risk_multiplier || 1.5)
       setAdxThreshold(d.adx_threshold || 18)
-      setReliabilityGate(d.reliability_gate !== false)
-      setReliabilityWinrate(Math.round((d.reliability_min_winrate || 0.60) * 100))
       setDailyLossLimit(Math.round((d.daily_loss_limit || 0.08) * 100))
       setMaxPositions(d.max_positions || 3)
     } catch (e) {}
@@ -1629,7 +1623,6 @@ function SettingsPage({ api, logout, setError, setSuccess, botStatus }) {
       retrain:    Math.max(10, Math.min(500, Math.round(retrainEvery))),
       multiplier: Math.max(1.0, Math.min(3.0, profitRiskMultiplier)),
       adx:        Math.max(5, Math.min(30, Math.round(adxThreshold))),
-      relwr:      Math.max(50, Math.min(90, Math.round(reliabilityWinrate))),
       dayLoss:    Math.max(1, Math.min(50, Math.round(dailyLossLimit))),
       maxPos:     Math.max(1, Math.min(10, Math.round(maxPositions))),
     }
@@ -1638,7 +1631,7 @@ function SettingsPage({ api, logout, setError, setSuccess, botStatus }) {
     setTradeCooldown(v.cooldown); setMinConfidence(v.conf)
     setTrailingStopPct(v.trail); setMaxDrawdownPct(v.drawdown)
     setRetrainEvery(v.retrain); setProfitRiskMultiplier(v.multiplier)
-    setAdxThreshold(v.adx); setReliabilityWinrate(v.relwr)
+    setAdxThreshold(v.adx)
     setDailyLossLimit(v.dayLoss); setMaxPositions(v.maxPos)
 
     setSettingsLoading(true)
@@ -1659,8 +1652,6 @@ function SettingsPage({ api, logout, setError, setSuccess, botStatus }) {
         retrain_every: v.retrain,
         profit_risk_multiplier: v.multiplier,
         adx_threshold: v.adx,
-        reliability_gate: reliabilityGate,
-        reliability_min_winrate: v.relwr / 100,
         daily_loss_limit: v.dayLoss / 100,
         max_positions: v.maxPos,
       })
@@ -1828,24 +1819,6 @@ function SettingsPage({ api, logout, setError, setSuccess, botStatus }) {
           <input type="number" value={adxThreshold} onChange={e => setAdxThreshold(Number(e.target.value))} min="5" max="30" step="1" disabled={isBotRunning} style={dis(isBotRunning)} />
           <p style={{ fontSize: 12, color: '#4a5060', marginTop: 4 }}>
             Minimum ADX trend strength required to open a trade (5–30). Lower = more trades, higher = stronger trends only. Run Optimizer to find the best value per token.
-          </p>
-        </div>
-
-        <div className="input-group">
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <input type="checkbox" checked={reliabilityGate} onChange={e => setReliabilityGate(e.target.checked)} disabled={isBotRunning} style={{ width: 'auto' }} />
-            Signal Confluence Gate
-          </label>
-          <p style={{ fontSize: 12, color: '#4a5060', marginTop: 4 }}>
-            Only enter when a technical signal with a proven track record agrees with the ML model. Double-confirmation cuts losses and concentrates capital on high-conviction setups.
-          </p>
-        </div>
-
-        <div className="input-group">
-          <label>Confluence Reliability Bar (% win rate)</label>
-          <input type="number" value={reliabilityWinrate} onChange={e => setReliabilityWinrate(Number(e.target.value))} min="50" max="90" step="1" disabled={isBotRunning || !reliabilityGate} style={dis(isBotRunning || !reliabilityGate)} />
-          <p style={{ fontSize: 12, color: '#4a5060', marginTop: 4 }}>
-            A signal counts as "reliable" only above this historical win rate (measured with your real leverage, SL/TP &amp; fees). The optimizer tunes this per coin. (50–90%)
           </p>
         </div>
 
@@ -2098,116 +2071,6 @@ function NavItem({ icon, label, active, onClick }) {
 }
 
 /* ─────────────────────────── Icons ─────────────────────────── */
-
-function SignalReliabilityPage({ api }) {
-  const [data, setData] = useState(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-
-  const load = async () => {
-    setLoading(true)
-    setError('')
-    try {
-      const r = await api.get('/signals/reliability')
-      setData(r.data)
-    } catch (e) {
-      setError(e.response?.data?.detail || 'Failed to load reliability data')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => { load() }, [])
-
-  const dirLabel = (dir) => dir === 1 ? 'LONG' : 'SHORT'
-  const dirColor = (dir) => dir === 1 ? '#10b981' : '#ef4444'
-
-  return (
-    <div className="page">
-      <div className="page-header">
-        <h1>Signal Reliability</h1>
-        <button className="btn btn-secondary" onClick={load} disabled={loading}>
-          {loading ? 'Loading…' : 'Refresh'}
-        </button>
-      </div>
-
-      {error && <div className="error-msg">{error}</div>}
-
-      {!loading && data && (
-        <div style={{fontSize: '0.75rem', color: '#6b7280', marginBottom: '1rem'}}>
-          Source: {data.source === 'live' ? 'live bot cache' : 'freshly computed'}
-        </div>
-      )}
-
-      {loading && <div className="loading">Computing scorecards…</div>}
-
-      {!loading && data && Object.entries(data.cards || {}).map(([symbol, card]) => (
-        <div key={symbol} className="card" style={{marginBottom: '1rem'}}>
-          <h3 style={{marginBottom: '0.75rem'}}>{symbol}</h3>
-          {Object.keys(card).length === 0 ? (
-            <p style={{color: '#6b7280', fontSize: '0.85rem'}}>No signals scored (need talib + enough history)</p>
-          ) : (
-            <div style={{overflowX: 'auto'}}>
-              <table style={{width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem'}}>
-                <thead>
-                  <tr style={{borderBottom: '1px solid #374151'}}>
-                    <th style={{textAlign: 'left', padding: '0.4rem 0.5rem', color: '#9ca3af'}}>Signal</th>
-                    <th style={{textAlign: 'center', padding: '0.4rem 0.5rem', color: '#9ca3af'}}>Dir</th>
-                    <th style={{textAlign: 'right', padding: '0.4rem 0.5rem', color: '#9ca3af'}}>Samples</th>
-                    <th style={{textAlign: 'right', padding: '0.4rem 0.5rem', color: '#9ca3af'}}>Win %</th>
-                    <th style={{textAlign: 'right', padding: '0.4rem 0.5rem', color: '#9ca3af'}}>Avg Ret</th>
-                    <th style={{textAlign: 'center', padding: '0.4rem 0.5rem', color: '#9ca3af'}}>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {Object.entries(card).map(([name, meta]) => (
-                    <tr key={name} style={{borderBottom: '1px solid #1f2937'}}>
-                      <td style={{padding: '0.4rem 0.5rem'}}>{name}</td>
-                      <td style={{textAlign: 'center', padding: '0.4rem 0.5rem', color: dirColor(meta.dir), fontWeight: 600}}>
-                        {dirLabel(meta.dir)}
-                      </td>
-                      <td style={{textAlign: 'right', padding: '0.4rem 0.5rem'}}>{meta.count}</td>
-                      <td style={{textAlign: 'right', padding: '0.4rem 0.5rem', color: meta.win_rate >= 0.60 ? '#10b981' : '#f59e0b'}}>
-                        {(meta.win_rate * 100).toFixed(1)}%
-                      </td>
-                      <td style={{textAlign: 'right', padding: '0.4rem 0.5rem', color: meta.avg_return > 0 ? '#10b981' : '#ef4444'}}>
-                        {meta.avg_return >= 0 ? '+' : ''}{(meta.avg_return * 100).toFixed(2)}%
-                      </td>
-                      <td style={{textAlign: 'center', padding: '0.4rem 0.5rem'}}>
-                        <span style={{
-                          padding: '0.15rem 0.5rem', borderRadius: '9999px', fontSize: '0.7rem', fontWeight: 700,
-                          background: meta.reliable ? 'rgba(16,185,129,0.15)' : 'rgba(107,114,128,0.15)',
-                          color: meta.reliable ? '#10b981' : '#6b7280',
-                          border: `1px solid ${meta.reliable ? '#10b981' : '#374151'}`
-                        }}>
-                          {meta.reliable ? 'RELIABLE' : 'WEAK'}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      ))}
-
-      {!loading && data && Object.keys(data.cards || {}).length === 0 && (
-        <div className="card" style={{textAlign: 'center', color: '#6b7280', padding: '2rem'}}>
-          No coins configured or no data available yet.
-        </div>
-      )}
-    </div>
-  )
-}
-
-function PulseIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
-    </svg>
-  )
-}
 
 function HomeIcon() {
   return (

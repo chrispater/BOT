@@ -39,7 +39,6 @@ from .auth import (
     decode_token, encrypt_credential, decrypt_credential
 )
 from .trading_service import TradingService, ParameterOptimizer
-from .signal_reliability import SignalReliability
 
 app = FastAPI(title="Crypto Trading Bot API", version="1.0.0")
 security = HTTPBearer()
@@ -86,8 +85,6 @@ class TradingSettings(BaseModel):
     retrain_every: Optional[int] = None
     profit_risk_multiplier: Optional[float] = None
     adx_threshold: Optional[int] = None
-    reliability_gate: Optional[bool] = None
-    reliability_min_winrate: Optional[float] = None
     daily_loss_limit: Optional[float] = None
     max_positions: Optional[int] = None
 
@@ -265,9 +262,6 @@ async def update_settings(settings: TradingSettings, user = Depends(get_current_
     if settings.profit_risk_multiplier is not None and (settings.profit_risk_multiplier < 1.0 or settings.profit_risk_multiplier > 3.0):
         raise HTTPException(status_code=400, detail="Profit risk multiplier must be between 1.0 and 3.0")
 
-    if settings.reliability_min_winrate is not None and (settings.reliability_min_winrate < 0.50 or settings.reliability_min_winrate > 0.90):
-        raise HTTPException(status_code=400, detail="Reliability win-rate bar must be between 50% and 90%")
-
     if settings.daily_loss_limit is not None and (settings.daily_loss_limit < 0.01 or settings.daily_loss_limit > 0.50):
         raise HTTPException(status_code=400, detail="Daily loss limit must be between 1% and 50%")
 
@@ -291,8 +285,6 @@ async def update_settings(settings: TradingSettings, user = Depends(get_current_
         retrain_every=settings.retrain_every,
         profit_risk_multiplier=settings.profit_risk_multiplier,
         adx_threshold=settings.adx_threshold,
-        reliability_gate=settings.reliability_gate,
-        reliability_min_winrate=settings.reliability_min_winrate,
         daily_loss_limit=settings.daily_loss_limit,
         max_positions=settings.max_positions,
     )
@@ -428,9 +420,6 @@ async def start_bot(user = Depends(get_current_user)):
         retrain_every=user_settings.get('retrain_every', 50),
         profit_risk_multiplier=user_settings.get('profit_risk_multiplier', 1.5),
         adx_threshold=user_settings.get('adx_threshold', 18),
-        reliability_gate=user_settings.get('reliability_gate', True),
-        reliability_min_winrate=user_settings.get('reliability_min_winrate', 0.60),
-        reliability_params=user_settings.get('reliability_params'),
         daily_loss_limit=user_settings.get('daily_loss_limit', 0.08),
         max_positions=user_settings.get('max_positions', 3),
         on_trade=on_trade,
@@ -524,65 +513,6 @@ async def get_signals(user = Depends(get_current_user)):
     user_id = user['user_id']
     signals = get_user_signals(user_id, limit=20)
     return {"signals": [dict(s) for s in signals] if signals else []}
-
-@app.get("/api/signals/reliability")
-async def get_signal_reliability(user = Depends(get_current_user)):
-    """
-    Per-coin, per-signal-type reliability scorecard: win rate, avg return, sample count,
-    and reliable flag — all scored under the user's actual leverage / SL / TP / fees.
-    Uses the live bot's cached cards when available; otherwise fetches fresh OHLCV.
-    """
-    user_id = user['user_id']
-
-    # Fast path: live bot has already built the cards
-    bot = user_bots.get(user_id)
-    if bot and bot.running and bot._reliability_cards:
-        return {"cards": dict(bot._reliability_cards), "source": "live"}
-
-    # Cold path: build from scratch
-    user_settings = get_user_settings(user_id)
-    with get_db() as conn:
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT encrypted_api_key, encrypted_api_secret, encrypted_api_password "
-            "FROM users WHERE id = %s", (user_id,)
-        )
-        cred_row = cur.fetchone()
-    api_key      = decrypt_credential(cred_row['encrypted_api_key'])      if cred_row and cred_row['encrypted_api_key']      else None
-    api_secret   = decrypt_credential(cred_row['encrypted_api_secret'])   if cred_row and cred_row['encrypted_api_secret']   else None
-    api_password = decrypt_credential(cred_row['encrypted_api_password']) if cred_row and cred_row['encrypted_api_password'] else None
-
-    scorer = SignalReliability(
-        leverage=user_settings.get('leverage', 10),
-        stop_loss_pct=user_settings.get('stop_loss_pct', 0.15),
-        take_profit_pct=user_settings.get('take_profit_pct', 0.30),
-        params=user_settings.get('reliability_params'),
-        min_winrate=user_settings.get('reliability_min_winrate', 0.60),
-    )
-    temp_bot = TradingService(
-        user_id=user_id, api_key=api_key, api_secret=api_secret,
-        api_password=api_password,
-        starting_balance=user_settings['starting_balance'],
-        leverage=user_settings.get('leverage', 10),
-        selected_coins=user_settings.get('selected_coins', []),
-        timeframe=user_settings.get('timeframe', '5m'),
-        reliability_gate=False,
-    )
-
-    def _compute():
-        cards = {}
-        for symbol in (user_settings.get('selected_coins') or []):
-            try:
-                df = temp_bot.fetch_ohlcv(symbol=symbol, limit=500)
-                if df is not None and len(df) >= 60:
-                    cards[symbol] = scorer.score(df)
-            except Exception:
-                pass
-        return cards
-
-    loop = asyncio.get_running_loop()
-    cards = await loop.run_in_executor(None, _compute)
-    return {"cards": cards, "source": "fresh"}
 
 @app.get("/api/strategies")
 async def get_strategies():
@@ -708,9 +638,6 @@ async def run_backtest(user = Depends(get_current_user)):
         retrain_every=user_settings.get('retrain_every', 50),
         profit_risk_multiplier=user_settings.get('profit_risk_multiplier', 1.5),
         adx_threshold=user_settings.get('adx_threshold', 18),
-        reliability_gate=user_settings.get('reliability_gate', True),
-        reliability_min_winrate=user_settings.get('reliability_min_winrate', 0.60),
-        reliability_params=user_settings.get('reliability_params'),
         daily_loss_limit=user_settings.get('daily_loss_limit', 0.08),
         max_positions=user_settings.get('max_positions', 3),
     )
@@ -893,7 +820,6 @@ def run_auto_optimization_thread(user_id: int, selected_coins: list, starting_ba
                 'leverage', 'timeframe', 'risk_per_trade', 'stop_loss_pct', 'take_profit_pct',
                 'trailing_stop_pct', 'min_confidence', 'adx_threshold',
                 'profit_risk_multiplier', 'trade_cooldown',
-                'reliability_min_winrate', 'reliability_params',
             ) if k in best}
             target_bot._pending_auto_config = cfg   # hot-applied on next flat cycle
             update_user_settings(
@@ -906,8 +832,6 @@ def run_auto_optimization_thread(user_id: int, selected_coins: list, starting_ba
                 trailing_stop_pct=float(cfg['trailing_stop_pct']) if 'trailing_stop_pct' in cfg else None,
                 min_confidence=float(cfg['min_confidence']) if 'min_confidence' in cfg else None,
                 adx_threshold=int(cfg['adx_threshold']) if 'adx_threshold' in cfg else None,
-                reliability_min_winrate=float(cfg['reliability_min_winrate']) if 'reliability_min_winrate' in cfg else None,
-                reliability_params=cfg.get('reliability_params'),
                 profit_risk_multiplier=float(cfg['profit_risk_multiplier']) if 'profit_risk_multiplier' in cfg else None,
                 trade_cooldown=int(cfg['trade_cooldown']) if 'trade_cooldown' in cfg else None,
             )
@@ -1117,8 +1041,6 @@ async def apply_optimizer_to_bot(run_id: int, user = Depends(get_current_user)):
         trailing_stop_pct=float(best_config['trailing_stop_pct']) if 'trailing_stop_pct'   in best_config else None,
         min_confidence=float(best_config['min_confidence'])      if 'min_confidence'        in best_config else None,
         adx_threshold=int(best_config['adx_threshold'])          if 'adx_threshold'         in best_config else None,
-        reliability_min_winrate=float(best_config['reliability_min_winrate']) if 'reliability_min_winrate' in best_config else None,
-        reliability_params=best_config.get('reliability_params'),
     )
 
     return {
