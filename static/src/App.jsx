@@ -1409,6 +1409,24 @@ function OptimizePage({ api, setError, setSuccess }) {
                         {isSelected ? 'Applied' : 'Apply'}
                       </button>
                     </div>
+
+                    {config.wf_folds > 1 && (
+                      <div style={{ marginTop: 6, fontSize: 11, color: '#8b95a5', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                        <span title="Fraction of out-of-sample walk-forward windows that were profitable">
+                          Walk-forward: <strong style={{ color: config.wf_consistency >= 0.75 ? '#00d4aa' : config.wf_consistency >= 0.5 ? '#f5a623' : '#ff4444' }}>
+                            {Math.round((config.wf_consistency || 0) * 100)}% folds green
+                          </strong> ({config.wf_folds})
+                        </span>
+                        {Array.isArray(config.fold_returns) && config.fold_returns.length > 0 && (
+                          <span style={{ display: 'flex', gap: 3 }}>
+                            {config.fold_returns.map((r, idx) => (
+                              <span key={idx} title={`Fold ${idx + 1}: ${r >= 0 ? '+' : ''}${r}%`}
+                                style={{ width: 7, height: 14, borderRadius: 2, background: r >= 0 ? '#00d4aa' : '#ff4444', opacity: 0.85 }} />
+                            ))}
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )
               })}

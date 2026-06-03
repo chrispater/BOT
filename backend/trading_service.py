@@ -2290,6 +2290,13 @@ class ParameterOptimizer:
     MIN_TRADES = 20                  # raised from 15 — more robust signal requirement
     SAMPLES_PER_TIMEFRAME = 120      # raised from 100
 
+    # Walk-forward validation: train on an expanding window, test on the next
+    # out-of-sample segment, and roll forward. A config is only good if it works
+    # across MULTIPLE forward windows — this is what separates a durable edge from
+    # a curve-fit to one lucky period.
+    WALK_FORWARD_FOLDS = 4           # number of out-of-sample test segments
+    MIN_WALK_FORWARD_FOLDS = 2       # fall back to single split below this
+
     def __init__(self, user_id: int, selected_coins: list, starting_balance: float = 10000,
                  api_key: str = None, api_secret: str = None, api_password: str = None,
                  max_leverage: int = None):
@@ -2352,38 +2359,20 @@ class ParameterOptimizer:
             self.ohlcv_cache[key] = df
         return self.ohlcv_cache.get(key)
 
-    def _train_and_cache_model(self, symbol: str, timeframe: str, days: int = 30):
-        key = (symbol, timeframe)
-        if key in self.model_cache:
-            return
-
-        df = self._cache_ohlcv(symbol, timeframe, days)
-        if df is None or len(df) < 100:
-            self.model_cache[key] = None
-            return
-
-        train_df = df.iloc[:len(df) // 2]
-        test_df = df.iloc[len(df) // 2:]
-
-        bot = TradingService(
-            user_id=self.user_id, starting_balance=self.starting_balance,
-            selected_coins=[symbol], timeframe=timeframe,
-        )
+    def _fit_fold(self, bot, train_df, test_df, is_tree):
+        """Train one walk-forward fold and return its cached artifacts, or None if
+        the training window is too thin to fit a meaningful model."""
         X_train, _ = bot.prepare_features(train_df)
         y_train = train_df['signal']
         mask = y_train != 0
         X_train, y_train = X_train[mask], y_train[mask]
-
-        if len(X_train) < 20:
-            self.model_cache[key] = None
-            return
-
+        if len(X_train) < 20 or len(y_train[y_train == 1]) < 2 or len(y_train[y_train == -1]) < 2:
+            return None
         try:
             imp = SimpleImputer(strategy='mean')
             sc = StandardScaler()
             X_imp = imp.fit_transform(X_train)
             X_sc = sc.fit_transform(X_imp)
-
             try:
                 smote = SMOTE(random_state=42,
                               k_neighbors=min(3, len(y_train[y_train == 1]) - 1, len(y_train[y_train == -1]) - 1))
@@ -2391,7 +2380,6 @@ class ParameterOptimizer:
             except Exception:
                 X_res, y_res = X_sc, y_train
 
-            is_tree = LGBM_AVAILABLE or XGB_AVAILABLE
             model = bot._build_model()
             if is_tree:
                 model.fit(X_res, _encode_y(y_res))
@@ -2402,22 +2390,206 @@ class ParameterOptimizer:
                 model = grid.best_estimator_
 
             X_test, _ = bot.prepare_features(test_df)
-            self.model_cache[key] = {
-                'model': model, 'imputer': imp, 'scaler': sc,
-                'test_df': test_df, 'X_test': X_test,
-                'temp_bot': bot, 'is_tree': is_tree,
-            }
-            logger.info(f"Optimizer: Trained model for {symbol} {timeframe}")
-        except Exception as e:
-            logger.warning(f"Optimizer: Failed to train {symbol} {timeframe}: {e}")
+            return {'model': model, 'imputer': imp, 'scaler': sc,
+                    'test_df': test_df, 'X_test': X_test, 'is_tree': is_tree}
+        except Exception:
+            return None
+
+    def _train_and_cache_model(self, symbol: str, timeframe: str, days: int = 30):
+        """
+        Build an expanding-window walk-forward ensemble for (symbol, timeframe):
+        split the history into WALK_FORWARD_FOLDS+1 contiguous blocks and, for each
+        fold k, train on blocks[0..k] and test on block[k+1]. Models are cached once
+        here and reused across every param combo in the search.
+        """
+        key = (symbol, timeframe)
+        if key in self.model_cache:
+            return
+
+        df = self._cache_ohlcv(symbol, timeframe, days)
+        if df is None or len(df) < 100:
             self.model_cache[key] = None
+            return
+
+        bot = TradingService(
+            user_id=self.user_id, starting_balance=self.starting_balance,
+            selected_coins=[symbol], timeframe=timeframe,
+        )
+        is_tree = LGBM_AVAILABLE or XGB_AVAILABLE
+
+        n_blocks = self.WALK_FORWARD_FOLDS + 1
+        block = len(df) // n_blocks
+        folds = []
+        if block >= 40:  # need a usable block size for both train and test
+            for k in range(self.WALK_FORWARD_FOLDS):
+                train_df = df.iloc[: (k + 1) * block]
+                test_df  = df.iloc[(k + 1) * block : (k + 2) * block]
+                if len(test_df) < 20:
+                    continue
+                fold = self._fit_fold(bot, train_df, test_df, is_tree)
+                if fold is not None:
+                    folds.append(fold)
+
+        # Fall back to the classic single 50/50 split if walk-forward couldn't
+        # produce enough folds (short history / sparse signals).
+        if len(folds) < self.MIN_WALK_FORWARD_FOLDS:
+            half = len(df) // 2
+            fold = self._fit_fold(bot, df.iloc[:half], df.iloc[half:], is_tree)
+            folds = [fold] if fold is not None else []
+
+        if not folds:
+            self.model_cache[key] = None
+            return
+
+        self.model_cache[key] = {'folds': folds, 'temp_bot': bot, 'is_tree': is_tree}
+        logger.info(f"Optimizer: Trained {len(folds)} walk-forward fold(s) for {symbol} {timeframe}")
+
+    def _backtest_segment(self, fold, bot, params, start_balance):
+        """Backtest one walk-forward fold's out-of-sample test_df under `params`.
+        Returns (trades, final_balance, max_dd_pct). Mirrors the live entry/exit
+        logic exactly so optimizer results translate 1:1 to production."""
+        TAKER_FEE = 0.0006
+        SLIP = 0.0005  # 5 bps slippage per leg
+        model = fold['model']; imp = fold['imputer']; sc = fold['scaler']
+        test_df = fold['test_df']; X_test = fold['X_test']; is_tree = fold['is_tree']
+
+        balance = start_balance
+        peak_balance = start_balance
+        max_dd = 0.0
+        position = None
+        entry_price = 0
+        hwm = lwm = 0
+        trades = []
+        last_trade_candle = -999
+        minutes = bot._get_timeframe_minutes()
+        cooldown_candles = max(1, math.ceil(params['trade_cooldown'] / 60 / minutes))
+
+        # Confluence map: candle index → directions backed by a reliable signal
+        # under THIS combo's leverage/SL/TP/signal-params. Soft boost, fail-open.
+        reliable_map = None
+        if SignalReliability is not None:
+            try:
+                horizon_o = max(12, int(120 / max(1, minutes)))
+                _sr = SignalReliability(
+                    leverage=params['leverage'], stop_loss_pct=params['stop_loss_pct'],
+                    take_profit_pct=params['take_profit_pct'], horizon=horizon_o,
+                    min_winrate=params.get('reliability_min_winrate', 0.60),
+                    min_samples=4, params=params.get('reliability_params'),
+                )
+                _card = _sr.score(test_df)
+                _detected = _sr._detect(test_df)
+                _map = {}
+                for _name, _info in _detected.items():
+                    _meta = _card.get(_name)
+                    if _meta and _meta['reliable']:
+                        for _idx in _info['idx'].tolist():
+                            _map.setdefault(_idx, set()).add(_info['dir'])
+                if sum(len(v) for v in _map.values()) >= 8:
+                    reliable_map = _map
+            except Exception:
+                reliable_map = None
+
+        opt_lev = max(1, params.get('leverage', 1))
+        fee_m = 2 * TAKER_FEE * opt_lev
+        net_win = max(0.001, params['take_profit_pct'] - fee_m)
+        net_loss = params['stop_loss_pct'] + fee_m
+
+        for i in range(len(test_df)):
+            try:
+                row = test_df.iloc[i]
+                price = row['close']
+                X_row = X_test.iloc[[i]]
+                X_sc = sc.transform(imp.transform(X_row))
+                raw = model.predict(X_sc)[0]
+                sig_val = int(_decode_y([raw])[0]) if is_tree else int(raw)
+                conf = float(max(model.predict_proba(X_sc)[0]))
+
+                if i - last_trade_candle < cooldown_candles:
+                    continue
+
+                adx_o = row.get('adx', 25); adx_o = 25.0 if pd.isna(adx_o) else float(adx_o)
+                vol_o = row.get('volume_ratio', 1.0); vol_o = 1.0 if pd.isna(vol_o) else float(vol_o)
+                rel_boost_o = CONFLUENCE_BOOST if (reliable_map is not None and sig_val in reliable_map.get(i, ())) else 1.0
+                # EV gate — must match live: positive expected value after fees.
+                ev_o = conf * net_win - (1 - conf) * net_loss
+                if position is None and sig_val != 0 and conf >= params['min_confidence'] and adx_o >= params['adx_threshold'] and vol_o >= 0.65 and ev_o > 0:
+                    conf_rng_o = max(0.01, 1.0 - params['min_confidence'])
+                    c_scale_o = max(0.5, min(1.5, 0.5 + (conf - params['min_confidence']) / conf_rng_o))
+                    risk_ceil_o = min(max(params['risk_per_trade'] * 2.0, 0.10), 0.75)
+                    margin = min(balance * params['risk_per_trade'] * c_scale_o * rel_boost_o, balance * risk_ceil_o)
+                    if margin <= 0 or margin > balance * 0.95:
+                        continue
+                    notional = margin * params['leverage']
+                    size = notional / price
+                    entry_fee = notional * (TAKER_FEE + SLIP)
+                    position = {'side': 'long' if sig_val == 1 else 'short',
+                                'size': size, 'margin': margin, 'entry_fee': entry_fee}
+                    entry_price = price
+                    hwm = lwm = price
+                    last_trade_candle = i
+
+                elif position is not None:
+                    if position['side'] == 'long':
+                        hwm = max(hwm, price)
+                    else:
+                        lwm = min(lwm, price)
+
+                    price_pnl_pct = ((price - entry_price) / entry_price if position['side'] == 'long'
+                                     else (entry_price - price) / entry_price)
+                    margin_pnl_pct = price_pnl_pct * opt_lev
+                    trail_price_pct = params.get('trailing_stop_pct', 0.01) / opt_lev
+                    should_exit = False
+
+                    if margin_pnl_pct <= -params['stop_loss_pct']:
+                        should_exit = True
+                    elif margin_pnl_pct >= params['take_profit_pct']:
+                        should_exit = True
+                    else:
+                        if price_pnl_pct > 0:
+                            if position['side'] == 'long' and price <= hwm * (1 - trail_price_pct):
+                                should_exit = True
+                            elif position['side'] == 'short' and price >= lwm * (1 + trail_price_pct):
+                                should_exit = True
+                        if not should_exit:
+                            exit_conf = params['min_confidence'] * 0.8
+                            if sig_val != 0 and conf >= exit_conf:
+                                if (sig_val == -1 and position['side'] == 'long') or \
+                                   (sig_val == 1 and position['side'] == 'short'):
+                                    should_exit = True
+
+                    if should_exit:
+                        price_change = ((price - entry_price) if position['side'] == 'long'
+                                        else (entry_price - price))
+                        pnl_amount = price_change * position['size']
+                        exit_fee = position['size'] * price * (TAKER_FEE + SLIP)
+                        net_pnl = pnl_amount - position['entry_fee'] - exit_fee
+                        balance += net_pnl
+                        peak_balance = max(peak_balance, balance)
+                        dd = (peak_balance - balance) / peak_balance * 100 if peak_balance > 0 else 0
+                        max_dd = max(max_dd, dd)
+                        trades.append({'pnl': net_pnl})
+                        position = None
+                        last_trade_candle = i
+            except Exception:
+                continue
+
+        return trades, balance, max_dd
 
     def _run_cached_backtest(self, timeframe: str, params: dict):
-        TAKER_FEE = 0.0006
+        """
+        Walk-forward backtest: for each coin, run every cached fold's out-of-sample
+        segment, then aggregate. Per-fold returns feed a consistency metric so the
+        score can reward configs that work across ALL forward windows, not just one.
+        """
         all_trades = []
         total_balance = 0
         overall_max_dd = 0
         balance_per_coin = self.starting_balance / len(self.selected_coins)
+
+        # fold index → aggregated end-balance across coins (for consistency scoring)
+        n_folds = 0
+        fold_start_total = 0.0
+        fold_end_total = {}
 
         for symbol in self.selected_coins:
             cached = self.model_cache.get((symbol, timeframe))
@@ -2425,148 +2597,18 @@ class ParameterOptimizer:
                 total_balance += balance_per_coin
                 continue
 
-            model = cached['model']
-            imp = cached['imputer']
-            sc = cached['scaler']
-            test_df = cached['test_df']
-            X_test = cached['X_test']
             bot = cached['temp_bot']
-            is_tree = cached.get('is_tree', False)
-
+            folds = cached['folds']
+            n_folds = max(n_folds, len(folds))
+            # Compound each fold off the previous fold's ending balance — this is a
+            # true forward simulation, not N independent restarts.
             balance = balance_per_coin
-            peak_balance = balance_per_coin
-            position = None
-            entry_price = 0
-            hwm = lwm = 0
-            trades = []
-            last_trade_candle = -999
-            minutes = bot._get_timeframe_minutes()
-            cooldown_candles = max(1, math.ceil(params['trade_cooldown'] / 60 / minutes))
-
-            # Confluence gate map: candle index → set of directions backed by a
-            # reliable signal under THIS combo's leverage/SL/TP/signal-params. Built
-            # once per combo. Fail-open when the (short) optimizer window has too few
-            # reliable signals to be meaningful — the tuned params still carry to live
-            # where the gate is enforced on full history.
-            reliable_map = None
-            if SignalReliability is not None:
-                try:
-                    horizon_o = max(12, int(120 / max(1, minutes)))
-                    _sr = SignalReliability(
-                        leverage=params['leverage'],
-                        stop_loss_pct=params['stop_loss_pct'],
-                        take_profit_pct=params['take_profit_pct'],
-                        horizon=horizon_o,
-                        min_winrate=params.get('reliability_min_winrate', 0.60),
-                        min_samples=4,
-                        params=params.get('reliability_params'),
-                    )
-                    _card = _sr.score(test_df)
-                    _detected = _sr._detect(test_df)
-                    _map = {}
-                    for _name, _info in _detected.items():
-                        _meta = _card.get(_name)
-                        if _meta and _meta['reliable']:
-                            for _idx in _info['idx'].tolist():
-                                _map.setdefault(_idx, set()).add(_info['dir'])
-                    if sum(len(v) for v in _map.values()) >= 8:
-                        reliable_map = _map
-                except Exception:
-                    reliable_map = None
-
-            for i in range(len(test_df)):
-                try:
-                    row = test_df.iloc[i]
-                    price = row['close']
-                    X_row = X_test.iloc[[i]]
-                    X_imp = imp.transform(X_row)
-                    X_sc = sc.transform(X_imp)
-                    raw = model.predict(X_sc)[0]
-                    sig_val = int(_decode_y([raw])[0]) if is_tree else int(raw)
-                    conf = float(max(model.predict_proba(X_sc)[0]))
-
-                    if i - last_trade_candle < cooldown_candles:
-                        continue
-
-                    # Entry filter must match live bot exactly (ADX + volume gate)
-                    adx_o = row.get('adx', 25); adx_o = 25.0 if pd.isna(adx_o) else float(adx_o)
-                    vol_o = row.get('volume_ratio', 1.0); vol_o = 1.0 if pd.isna(vol_o) else float(vol_o)
-                    SLIP = 0.0005  # 5 bps slippage per leg
-                    rel_boost_o = CONFLUENCE_BOOST if (reliable_map is not None and sig_val in reliable_map.get(i, ())) else 1.0
-                    if position is None and sig_val != 0 and conf >= params['min_confidence'] and adx_o >= params['adx_threshold'] and vol_o >= 0.65:
-                        # Confidence-scaled margin (mirrors live _calculate_margin)
-                        conf_rng_o = max(0.01, 1.0 - params['min_confidence'])
-                        c_scale_o = max(0.5, min(1.5, 0.5 + (conf - params['min_confidence']) / conf_rng_o))
-                        risk_ceil_o = min(max(params['risk_per_trade'] * 2.0, 0.10), 0.75)
-                        margin = min(balance * params['risk_per_trade'] * c_scale_o * rel_boost_o, balance * risk_ceil_o)
-                        if margin <= 0 or margin > balance * 0.95:
-                            continue
-                        notional = margin * params['leverage']
-                        size = notional / price
-                        entry_fee = notional * (TAKER_FEE + SLIP)
-                        position = {
-                            'side': 'long' if sig_val == 1 else 'short',
-                            'size': size, 'margin': margin, 'entry_fee': entry_fee,
-                        }
-                        entry_price = price
-                        hwm = lwm = price
-                        last_trade_candle = i
-
-                    elif position is not None:
-                        if position['side'] == 'long':
-                            hwm = max(hwm, price)
-                        else:
-                            lwm = min(lwm, price)
-
-                        price_pnl_pct = (
-                            (price - entry_price) / entry_price if position['side'] == 'long'
-                            else (entry_price - price) / entry_price
-                        )
-                        opt_lev = max(1, params.get('leverage', 1))
-                        margin_pnl_pct = price_pnl_pct * opt_lev
-                        ts = params.get('trailing_stop_pct', 0.01)
-                        trail_price_pct = ts / opt_lev
-                        should_exit = False
-
-                        if margin_pnl_pct <= -params['stop_loss_pct']:
-                            should_exit = True
-                        elif margin_pnl_pct >= params['take_profit_pct']:
-                            should_exit = True
-                        else:
-                            if price_pnl_pct > 0:
-                                if position['side'] == 'long' and price <= hwm * (1 - trail_price_pct):
-                                    should_exit = True
-                                elif position['side'] == 'short' and price >= lwm * (1 + trail_price_pct):
-                                    should_exit = True
-                            if not should_exit:
-                                exit_conf = params['min_confidence'] * 0.8
-                                if sig_val != 0 and conf >= exit_conf:
-                                    if (sig_val == -1 and position['side'] == 'long') or \
-                                       (sig_val == 1 and position['side'] == 'short'):
-                                        should_exit = True
-
-                        if should_exit:
-                            price_change = (
-                                (price - entry_price) if position['side'] == 'long'
-                                else (entry_price - price)
-                            )
-                            pnl_amount = price_change * position['size']
-                            exit_fee = position['size'] * price * (TAKER_FEE + SLIP)
-                            net_pnl = pnl_amount - position['entry_fee'] - exit_fee
-                            balance += net_pnl
-
-                            # Track drawdown per coin
-                            peak_balance = max(peak_balance, balance)
-                            dd = (peak_balance - balance) / peak_balance * 100 if peak_balance > 0 else 0
-                            overall_max_dd = max(overall_max_dd, dd)
-
-                            trades.append({'pnl': net_pnl})
-                            position = None
-                            last_trade_candle = i
-                except Exception:
-                    continue
-
-            all_trades.extend(trades)
+            fold_start_total += balance_per_coin
+            for fi, fold in enumerate(folds):
+                trades, balance, fold_dd = self._backtest_segment(fold, bot, params, balance)
+                all_trades.extend(trades)
+                overall_max_dd = max(overall_max_dd, fold_dd)
+                fold_end_total[fi] = fold_end_total.get(fi, 0.0) + balance - balance_per_coin
             total_balance += balance
 
         total_trades = len(all_trades)
@@ -2580,6 +2622,21 @@ class ParameterOptimizer:
             tret = [t['pnl'] / max(self.starting_balance, 1) for t in all_trades]
             sharpe_ratio = float(np.mean(tret) / (np.std(tret) + 1e-10) * np.sqrt(total_trades))
 
+        # Walk-forward consistency: per-fold % return (across all coins), then the
+        # fraction of folds that were profitable and the spread of returns.
+        fold_returns = []
+        for fi in sorted(fold_end_total.keys()):
+            fold_returns.append(fold_end_total[fi] / max(self.starting_balance, 1) * 100)
+        if fold_returns:
+            profitable_folds = sum(1 for r in fold_returns if r > 0)
+            wf_consistency = profitable_folds / len(fold_returns)
+            wf_return_std = float(np.std(fold_returns))
+            wf_worst_fold = float(min(fold_returns))
+        else:
+            wf_consistency = 0.0
+            wf_return_std = 0.0
+            wf_worst_fold = 0.0
+
         return {
             'total_return': total_return_pct,
             'total_pnl': total_pnl,
@@ -2589,12 +2646,25 @@ class ParameterOptimizer:
             'final_balance': total_balance,
             'max_drawdown': overall_max_dd,
             'sharpe_ratio': sharpe_ratio,
+            'wf_folds': len(fold_returns),
+            'wf_consistency': round(wf_consistency, 3),
+            'wf_return_std': round(wf_return_std, 3),
+            'wf_worst_fold': round(wf_worst_fold, 3),
+            'fold_returns': [round(r, 3) for r in fold_returns],
         }
 
     def _calculate_score(self, result: dict) -> float:
         if result['total_trades'] < self.MIN_TRADES:
             return -999
         if result['total_return'] < 0:
+            return -999
+
+        # Walk-forward gate: with multiple folds, reject configs that take a
+        # meaningful loss in any forward window. A durable edge holds up
+        # out-of-sample — a curve-fit posts one spectacular fold and bleeds in the
+        # rest. A small wobble (>-3%) is tolerated; a real forward loss is not.
+        wf_folds = result.get('wf_folds', 0)
+        if wf_folds >= self.MIN_WALK_FORWARD_FOLDS and result.get('wf_worst_fold', 0) < -3.0:
             return -999
 
         roi_score     = min(result['total_return'] / 100, 1.0)
@@ -2608,16 +2678,23 @@ class ParameterOptimizer:
         # Sharpe ratio: consistency and quality of returns (capped at Sharpe 3.0 → 1.0)
         sharpe_score = max(0.0, min(result.get('sharpe_ratio', 0) / 3.0, 1.0))
 
+        # Walk-forward consistency: fraction of forward folds that were profitable.
+        wf_score = result.get('wf_consistency', 0.0) if wf_folds >= self.MIN_WALK_FORWARD_FOLDS else 0.5
+
         # Penalise drawdowns above 15%
         dd_penalty = max(0.0, (result.get('max_drawdown', 0) - 15) / 100)
+        # Penalise high spread across folds — unstable configs are fragile live.
+        wf_penalty = min(0.15, result.get('wf_return_std', 0.0) / 200) if wf_folds >= self.MIN_WALK_FORWARD_FOLDS else 0.0
 
         return (
-            0.30 * roi_score
-            + 0.20 * winrate_score
+            0.25 * roi_score
+            + 0.15 * winrate_score
             + 0.10 * trade_score
-            + 0.25 * calmar_score
-            + 0.15 * sharpe_score
+            + 0.20 * calmar_score
+            + 0.10 * sharpe_score
+            + 0.20 * wf_score
             - dd_penalty
+            - wf_penalty
         )
 
     def score_config(self, params: dict):
@@ -2718,6 +2795,10 @@ class ParameterOptimizer:
                             'total_trades': result['total_trades'],
                             'total_pnl': round(result['total_pnl'], 2),
                             'max_drawdown': round(result.get('max_drawdown', 0), 2),
+                            'wf_folds': result.get('wf_folds', 0),
+                            'wf_consistency': result.get('wf_consistency', 0.0),
+                            'wf_worst_fold': result.get('wf_worst_fold', 0.0),
+                            'fold_returns': result.get('fold_returns', []),
                             'score': round(score, 4),
                         })
                 except Exception as e:
