@@ -921,7 +921,7 @@ class TradingService:
         logger.info(
             f"User {self.user_id}: [MARGIN] base=${base_cap:.2f} k={k*100:.1f}% | "
             f"profit_tier=${profit:.2f}×{self.profit_risk_multiplier} | "
-            f"conf={conf_str} scale={conf_scale:.2f} dd={dd_scale:.2f} adapt={adaptive_scale:.2f} → ${final:.2f}"
+            f"conf={conf_str} kelly={k:.4f} dd={dd_scale:.2f} adapt={adaptive_scale:.2f} → ${final:.2f}"
         )
         return max(1.0, final)
 
