@@ -217,8 +217,10 @@ async def update_settings(settings: TradingSettings, user = Depends(get_current_
     if user_id in user_bots and user_bots[user_id].running:
         raise HTTPException(status_code=400, detail="Cannot change settings while bot is running. Please stop the bot first.")
 
-    if settings.leverage is not None and (settings.leverage < 1 or settings.leverage > 100):
-        raise HTTPException(status_code=400, detail="Leverage must be between 1 and 100")
+    # Intraday swing bot: hard-cap leverage at 10x. Above this, a normal intraday
+    # wick can liquidate the position before the trade thesis plays out.
+    if settings.leverage is not None and (settings.leverage < 1 or settings.leverage > 10):
+        raise HTTPException(status_code=400, detail="Leverage must be between 1 and 10")
 
     if settings.starting_balance is not None and settings.starting_balance < 100:
         raise HTTPException(status_code=400, detail="Starting balance must be at least 100")

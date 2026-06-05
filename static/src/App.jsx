@@ -1556,7 +1556,7 @@ function SettingsPage({ api, logout, setError, setSuccess, botStatus }) {
 
   const [settingsLoading, setSettingsLoading] = useState(false)
 
-  const TIMEFRAME_OPTIONS = ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '1d']
+  const TIMEFRAME_OPTIONS = ['1m', '3m', '5m', '15m', '30m', '1h', '2h']
   const isBotRunning = botStatus?.running
 
   useEffect(() => {
@@ -1729,7 +1729,7 @@ function SettingsPage({ api, logout, setError, setSuccess, botStatus }) {
         <div className="input-group">
           <label>Leverage</label>
           <select value={leverage} onChange={e => setLeverage(Number(e.target.value))} disabled={isBotRunning} style={sel(isBotRunning)}>
-            {[1, 2, 3, 5, 10, 15, 20, 25, 50, 75, 100].map(lev => (
+            {[1, 2, 3, 5, 8, 10].map(lev => (
               <option key={lev} value={lev}>{lev}x</option>
             ))}
           </select>

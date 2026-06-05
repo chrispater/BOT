@@ -2194,13 +2194,16 @@ class ParameterOptimizer:
     Scores by ROI × win-rate × trade-count, penalised for excess drawdown.
     """
 
-    LEVERAGES = [5, 10, 15, 20, 25, 50]          # removed 2x (too conservative), added 15x, 50x
+    # Intraday swing focus: leverage capped at 10x (above this, an adverse intraday
+    # wick liquidates the position before the thesis can play out), timeframes capped
+    # at 2h (4h+ is positional, not intraday). Tighter search space also cuts overfitting.
+    LEVERAGES = [3, 5, 8, 10]
     RISK_PER_TRADE = [0.01, 0.015, 0.02, 0.03, 0.04, 0.05]
     STOP_LOSS = [0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.40, 0.50]   # % of margin
     TAKE_PROFIT = [0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.80, 1.00, 1.50]  # % of margin
     COOLDOWNS = [60, 180, 300, 600, 900]
     CONFIDENCES = [x / 100 for x in range(60, 90, 5)]  # raised floor from 55% to 60%
-    TIMEFRAMES = ['5m', '15m', '30m', '1h', '2h', '4h']
+    TIMEFRAMES = ['5m', '15m', '30m', '1h', '2h']
     TRAILING_STOPS = [0.05, 0.08, 0.10, 0.15, 0.20, 0.25]  # % of margin
     PROFIT_MULTIPLIERS = [1.0, 1.25, 1.5, 2.0, 2.5]
     ADX_THRESHOLDS = [8, 10, 13, 16, 18, 20, 23, 25]  # per-token optimized entry trend filter
@@ -2222,11 +2225,13 @@ class ParameterOptimizer:
     # ── SL-aware model training ────────────────────────────────────────────────
     # Labels are trained with bucket-representative params so the model actually
     # learns the right exit-regime boundary.  Three buckets cover the whole grid.
-    _SL_TIGHT_THRESHOLD  = 0.010   # effective price-move SL < 1%  (tight/high-lev)
+    _SL_TIGHT_THRESHOLD  = 0.010   # effective price-move SL < 1%  (tight stop)
     _SL_MEDIUM_THRESHOLD = 0.030   # effective price-move SL 1%-3% (medium)
-    # ≥ 3% = wide (low-lev / wide-stop)
-    _BUCKET_SL  = {'tight': 0.10, 'medium': 0.15, 'wide': 0.25}
-    _BUCKET_LEV = {'tight': 20,   'medium': 10,   'wide': 5   }
+    # ≥ 3% = wide stop
+    # Representative price-move SL per bucket (SL%/lev): tight≈0.5%, medium≈2%, wide≈5%.
+    # All use lev=10 (the new ceiling) so labels reflect the regimes we actually trade.
+    _BUCKET_SL  = {'tight': 0.05, 'medium': 0.20, 'wide': 0.50}
+    _BUCKET_LEV = {'tight': 10,   'medium': 10,   'wide': 10  }
     _BUCKET_TP  = {'tight': 0.20, 'medium': 0.30, 'wide': 0.50}
 
     @staticmethod
