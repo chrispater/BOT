@@ -72,18 +72,30 @@ def _neutralize_broken_dask():
 
 _neutralize_broken_dask()
 
-# ── Optional high-performance models (LightGBM > XGBoost > SVM fallback) ──
+# ── Optional high-performance models ─────────────────────────────────────────
+# Priority: LightGBM → XGBoost → HistGradientBoosting (sklearn) → SVM
+# Log the actual exception so failures are diagnosable in the web app logs.
+_lgbm_import_err = None
 try:
     import lightgbm as lgb
     LGBM_AVAILABLE = True
-except Exception:        # not just ImportError — a broken optional dep must not be fatal
+except Exception as _e:
     LGBM_AVAILABLE = False
+    _lgbm_import_err = f"{type(_e).__name__}: {_e}"
 
+_xgb_import_err = None
 try:
     import xgboost as xgb
     XGB_AVAILABLE = True
-except Exception:
+except Exception as _e:
     XGB_AVAILABLE = False
+    _xgb_import_err = f"{type(_e).__name__}: {_e}"
+
+# HistGradientBoostingClassifier — pure numpy, no large C extensions, already
+# installed via scikit-learn. Used as the real fallback before SVM so the bot
+# never has to resort to a kernel machine for tabular data.
+from sklearn.ensemble import HistGradientBoostingClassifier
+HGBT_AVAILABLE = True   # always True — it's part of the sklearn dep we require
 
 # ── Optional signal engine (second-opinion ensemble) ──
 try:
@@ -98,15 +110,27 @@ except Exception:
 logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(message)s')
 logger = logging.getLogger(__name__)
 
-# Definitive, one-time record of which ML engine is actually live. SVM is a weak
-# last-resort fallback — if you see it here, install/repair lightgbm or xgboost.
-_ACTIVE_ENGINE = 'LightGBM' if LGBM_AVAILABLE else 'XGBoost' if XGB_AVAILABLE else 'SVM (fallback!)'
-logger.info(f"ML engine active: {_ACTIVE_ENGINE} (LGBM={LGBM_AVAILABLE}, XGB={XGB_AVAILABLE})")
+# Definitive startup record of the active ML engine.
+if LGBM_AVAILABLE:
+    _ACTIVE_ENGINE = 'LightGBM'
+elif XGB_AVAILABLE:
+    _ACTIVE_ENGINE = 'XGBoost'
+else:
+    _ACTIVE_ENGINE = 'HistGradientBoosting'   # sklearn — solid fallback, not SVM
+
+logger.info(
+    f"ML engine active: {_ACTIVE_ENGINE} "
+    f"(LGBM={LGBM_AVAILABLE}, XGB={XGB_AVAILABLE}, HGBT={HGBT_AVAILABLE})"
+)
+if not LGBM_AVAILABLE:
+    logger.warning(f"LightGBM unavailable — {_lgbm_import_err or 'no error captured'}")
+if not XGB_AVAILABLE:
+    logger.warning(f"XGBoost unavailable — {_xgb_import_err or 'no error captured'}")
 if not (LGBM_AVAILABLE or XGB_AVAILABLE):
     logger.warning(
-        "Running on the SVM fallback — gradient-boosted trees are unavailable. "
-        "Confidence calibration and pattern recognition will be materially worse. "
-        "Fix with: pip install lightgbm xgboost  (and repair/remove a broken dask)."
+        "Using HistGradientBoosting (sklearn) — gradient-boosted trees, good "
+        "calibration, handles NaN natively. Faster to fix: "
+        "pip install lightgbm xgboost into the web app virtualenv."
     )
 
 # ── Constants ──────────────────────────────────────────────────────────────
@@ -664,15 +688,22 @@ class TradingService:
     # ── Model ───────────────────────────────────────────────────────────────
 
     def _build_model(self):
-        """Return best available classifier: LightGBM → XGBoost → SVM."""
+        """Return best available classifier: LightGBM → XGBoost → HistGradientBoosting → SVM."""
         if LGBM_AVAILABLE:
             return lgb.LGBMClassifier(**LGBM_PARAMS)
         if XGB_AVAILABLE:
             return xgb.XGBClassifier(**XGB_PARAMS)
-        return SVC(probability=True, C=10, gamma='scale', kernel='rbf', random_state=42)
+        # HistGradientBoostingClassifier: pure numpy, no large C extensions,
+        # handles NaN natively (no imputer needed), well-calibrated probabilities.
+        # Far better than SVM for tabular financial data; always available via sklearn.
+        return HistGradientBoostingClassifier(
+            max_iter=300, max_depth=6, learning_rate=0.05,
+            min_samples_leaf=20, l2_regularization=0.1,
+            class_weight='balanced', random_state=42,
+        )
 
     def train_model(self, df):
-        logger.info(f"User {self.user_id}: Training ML model ({'LGBM' if LGBM_AVAILABLE else 'XGB' if XGB_AVAILABLE else 'SVM'})...")
+        logger.info(f"User {self.user_id}: Training ML model ({_ACTIVE_ENGINE})...")
         df = self.calculate_indicators(df.copy())
         df = self.create_labels(df)
         df = df.dropna()
@@ -743,7 +774,7 @@ class TradingService:
         except Exception:
             X_res, y_res = X_sc, y_ser
 
-        is_tree = LGBM_AVAILABLE or XGB_AVAILABLE
+        is_tree = LGBM_AVAILABLE or XGB_AVAILABLE or HGBT_AVAILABLE
         model = self._build_model()
 
         if is_tree:
@@ -1454,7 +1485,7 @@ class TradingService:
             'min_confidence': self.min_confidence,
             'adx_threshold': self.adx_threshold,
             'market_regime': self.market_regime,
-            'model_type': 'LGBM' if LGBM_AVAILABLE else 'XGB' if XGB_AVAILABLE else 'SVM',
+            'model_type': _ACTIVE_ENGINE,
             'signal_engine_active': bool(SIGNAL_ENGINE_AVAILABLE),
             'total_pnl': float(self.total_pnl),
             'total_trades': self.total_trades,
@@ -1992,7 +2023,7 @@ class TradingService:
             except Exception:
                 X_res, y_res = X_sc, y_train
 
-            is_tree = LGBM_AVAILABLE or XGB_AVAILABLE
+            is_tree = LGBM_AVAILABLE or XGB_AVAILABLE or HGBT_AVAILABLE
             model = self._build_model()
             if is_tree:
                 model.fit(X_res, _encode_y(y_res))
@@ -2524,7 +2555,7 @@ class ParameterOptimizer:
             user_id=self.user_id, starting_balance=self.starting_balance,
             selected_coins=[symbol], timeframe=timeframe,
         )
-        is_tree = LGBM_AVAILABLE or XGB_AVAILABLE
+        is_tree = LGBM_AVAILABLE or XGB_AVAILABLE or HGBT_AVAILABLE
 
         for bucket in ('tight', 'medium', 'wide'):
             key = (symbol, timeframe, bucket)
