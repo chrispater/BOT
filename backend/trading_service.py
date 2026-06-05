@@ -27,18 +27,50 @@ os.makedirs(_MODEL_DIR, exist_ok=True)
 # Some environments (e.g. PythonAnywhere) ship a stale system `dask` whose import
 # crashes against a newer pandas (AttributeError: pandas.core.strings has no
 # attribute 'StringMethods'). LightGBM imports dask.dataframe for its optional
-# Dask integration inside a `try/except ImportError` — but an AttributeError
-# escapes that guard and takes the whole process down on `import lightgbm`. We
-# don't use dask anywhere, so if a broken dask is present, neutralize it to a
-# clean ImportError BEFORE importing lightgbm. Must run before the LightGBM import.
-try:
-    import dask.dataframe  # noqa: F401  (probe: succeeds on a healthy dask)
-except ImportError:
-    pass  # dask simply not installed — LightGBM degrades gracefully on its own
-except Exception:
+# Dask integration — but an AttributeError escapes LightGBM's `except ImportError`
+# guard and takes the whole process down on `import lightgbm`. We don't use dask
+# anywhere, so if a broken dask is present we replace it with permissive stub
+# modules BEFORE importing lightgbm. The stub satisfies any `from dask... import X`
+# LightGBM attempts (returning a dummy type used only for isinstance checks in the
+# Dask code path we never exercise), so LightGBM imports cleanly regardless of
+# whether it wraps its dask import in try/except. Must run before the LightGBM import.
+def _neutralize_broken_dask():
+    import types
+    import importlib.abc
+    import importlib.machinery
+
+    try:
+        import dask.dataframe  # noqa: F401  (probe: succeeds on a healthy dask)
+        return  # healthy dask — leave it alone
+    except ImportError:
+        return  # dask not installed — LightGBM degrades gracefully on its own
+    except Exception:
+        pass    # broken dask — fall through and stub it out
+
+    # Purge any half-initialized dask modules the failed probe may have left behind.
     for _m in [m for m in list(sys.modules) if m == 'dask' or m.startswith('dask.')]:
         del sys.modules[_m]
-    sys.modules['dask'] = None  # makes any later `import dask` raise ImportError
+
+    class _DaskStub(types.ModuleType):
+        __path__ = []  # mark as a package so `import dask.<sub>` keeps resolving
+        def __getattr__(self, name):
+            # Any symbol LightGBM pulls (DataFrame, Series, Client, delayed, …)
+            # resolves to a harmless placeholder type.
+            return type(f"_DaskStub_{name}", (), {})
+
+    class _DaskStubFinder(importlib.abc.MetaPathFinder, importlib.abc.Loader):
+        def find_spec(self, fullname, path, target=None):
+            if fullname == 'dask' or fullname.startswith('dask.'):
+                return importlib.machinery.ModuleSpec(fullname, self)
+            return None
+        def create_module(self, spec):
+            return _DaskStub(spec.name)
+        def exec_module(self, module):
+            pass
+
+    sys.meta_path.insert(0, _DaskStubFinder())
+
+_neutralize_broken_dask()
 
 # ── Optional high-performance models (LightGBM > XGBoost > SVM fallback) ──
 try:
@@ -66,6 +98,17 @@ except Exception:
 logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(message)s')
 logger = logging.getLogger(__name__)
 
+# Definitive, one-time record of which ML engine is actually live. SVM is a weak
+# last-resort fallback — if you see it here, install/repair lightgbm or xgboost.
+_ACTIVE_ENGINE = 'LightGBM' if LGBM_AVAILABLE else 'XGBoost' if XGB_AVAILABLE else 'SVM (fallback!)'
+logger.info(f"ML engine active: {_ACTIVE_ENGINE} (LGBM={LGBM_AVAILABLE}, XGB={XGB_AVAILABLE})")
+if not (LGBM_AVAILABLE or XGB_AVAILABLE):
+    logger.warning(
+        "Running on the SVM fallback — gradient-boosted trees are unavailable. "
+        "Confidence calibration and pattern recognition will be materially worse. "
+        "Fix with: pip install lightgbm xgboost  (and repair/remove a broken dask)."
+    )
+
 # ── Constants ──────────────────────────────────────────────────────────────
 SYMBOL = 'BTC/USDT:USDT'
 LEVERAGE = 10
@@ -79,6 +122,29 @@ TRADE_COOLDOWN = 300
 TAKER_FEE = 0.0006  # Blofin taker fee — applied at both entry and exit
 
 VALID_TIMEFRAMES = ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '1d']
+
+# Canonical model feature set. Single source of truth so prepare_features() and the
+# persisted-model compatibility guard never drift apart. Bump the implied "version"
+# simply by changing this list — any model trained on a different set is discarded
+# on load rather than crashing the predict path with a feature-count mismatch.
+FEATURE_COLUMNS = [
+    'rsi', 'macd', 'macd_signal', 'macd_hist', 'bb_position',
+    'atr', 'adx', 'stoch_k', 'stoch_d', 'cci', 'mfi',
+    'roc', 'mom', 'trend_sma', 'volatility', 'volume_ratio',
+    'vwap_distance', 'vwap_slope',
+    'obv_slope', 'ad_slope', 'cmf',
+    'volume_price_confirm', 'volume_divergence',
+    'breakout_proximity', 'breakout_quality',
+    'vol_weighted_mom', 'vol_weighted_roc',
+    'bb_squeeze', 'in_squeeze',
+    'vol_adj_adx', 'directional_volume',
+    'ema200_distance', 'ema200_slope',
+    # Temporal / sequence features — recent dynamics, not just snapshots.
+    'ret_3', 'ret_5', 'ret_10', 'ret_accel',
+    'rsi_delta3', 'macd_hist_delta3', 'adx_delta3',
+    'bb_position_delta3', 'volume_ratio_delta3',
+    'candle_streak', 'green_frac_10', 'range_pos_5', 'vol_regime',
+]
 
 # SVM fallback grid
 SVM_PARAMS = {'C': [0.1, 1, 10], 'gamma': ['scale', 'auto'], 'kernel': ['rbf']}
@@ -388,6 +454,49 @@ class TradingService:
             (up_vol.rolling(10).sum() - dn_vol.rolling(10).sum()) /
             (df['volume'].rolling(10).sum() + 1e-10)
         )
+
+        # ── Temporal / sequence features ────────────────────────────────────────
+        # The indicators above are point-in-time snapshots — they tell the model
+        # what RSI *is*, not whether it's rising or falling, nor what price did over
+        # the last several bars. These features give the tree model short-horizon
+        # memory (velocity, acceleration, trajectory, persistence) so it can learn
+        # temporal patterns without the overfitting risk of a deep sequence model.
+        # All use only past data (pct_change / shift / rolling), so no lookahead.
+
+        # Multi-bar price trajectory — where price has been heading recently.
+        df['ret_3']  = df['close'].pct_change(periods=3)
+        df['ret_5']  = df['close'].pct_change(periods=5)
+        df['ret_10'] = df['close'].pct_change(periods=10)
+        # Acceleration: is the most recent 1-bar move speeding up or fading?
+        df['ret_accel'] = df['returns'] - df['returns'].shift(1)
+
+        # Indicator velocity (delta over 3 bars) — direction of momentum/trend,
+        # which a raw snapshot value cannot convey.
+        df['rsi_delta3']          = df['rsi'] - df['rsi'].shift(3)
+        df['macd_hist_delta3']    = df['macd_hist'] - df['macd_hist'].shift(3)
+        df['adx_delta3']          = df['adx'] - df['adx'].shift(3)          # trend strengthening?
+        df['bb_position_delta3']  = df['bb_position'] - df['bb_position'].shift(3)
+        df['volume_ratio_delta3'] = df['volume_ratio'] - df['volume_ratio'].shift(3)
+
+        # Momentum persistence: signed run-length of consecutive up/down candles,
+        # clipped to keep the scale bounded.
+        _dir = np.sign(df['returns'].fillna(0))
+        _run_grp = (_dir != _dir.shift()).cumsum()
+        _run_len = _dir.groupby(_run_grp).cumcount() + 1
+        df['candle_streak'] = (_run_len * _dir).clip(-10, 10)
+        # Fraction of the last 10 candles that closed green — bull/bear pressure.
+        df['green_frac_10'] = (df['returns'] > 0).rolling(10).mean()
+
+        # Position of close within the recent 5-bar range (short-horizon companion
+        # to the 20-bar breakout_proximity above).
+        _hi5 = df['high'].rolling(5).max()
+        _lo5 = df['low'].rolling(5).min()
+        df['range_pos_5'] = (df['close'] - _lo5) / (_hi5 - _lo5 + 1e-10)
+
+        # Volatility regime: current vol relative to its recent norm. Lets the model
+        # condition behavior on calm vs turbulent markets.
+        df['vol_regime'] = df['volatility'] / (df['volatility'].rolling(50).mean() + 1e-10)
+
         return df
 
     def create_labels(self, df, forward_periods=None, threshold=0.005):
@@ -455,20 +564,7 @@ class TradingService:
         return df
 
     def prepare_features(self, df):
-        feature_columns = [
-            'rsi', 'macd', 'macd_signal', 'macd_hist', 'bb_position',
-            'atr', 'adx', 'stoch_k', 'stoch_d', 'cci', 'mfi',
-            'roc', 'mom', 'trend_sma', 'volatility', 'volume_ratio',
-            'vwap_distance', 'vwap_slope',
-            'obv_slope', 'ad_slope', 'cmf',
-            'volume_price_confirm', 'volume_divergence',
-            'breakout_proximity', 'breakout_quality',
-            'vol_weighted_mom', 'vol_weighted_roc',
-            'bb_squeeze', 'in_squeeze',
-            'vol_adj_adx', 'directional_volume',
-            'ema200_distance', 'ema200_slope',
-        ]
-        available = [c for c in feature_columns if c in df.columns]
+        available = [c for c in FEATURE_COLUMNS if c in df.columns]
         return df[available].copy(), available
 
     # ── Model persistence & incremental learning ────────────────────────────
@@ -478,6 +574,17 @@ class TradingService:
             return
         try:
             data = pickle.load(open(self._model_file, 'rb'))
+            # Feature-set guard: a model trained on a different feature set would
+            # crash (or silently mispredict) when fed the current feature vector.
+            # Discard it and retrain from scratch rather than load a stale shape.
+            saved_features = data.get('features')
+            if saved_features is not None and saved_features != FEATURE_COLUMNS:
+                logger.warning(
+                    f"User {self.user_id}: Persisted model feature set is stale "
+                    f"({len(saved_features)} feats vs current {len(FEATURE_COLUMNS)}) — "
+                    f"discarding and retraining."
+                )
+                return
             self.model = data['model']
             self.scaler = data['scaler']
             self.imputer = data['imputer']
@@ -490,7 +597,8 @@ class TradingService:
         try:
             pickle.dump({
                 'model': self.model, 'scaler': self.scaler, 'imputer': self.imputer,
-                'is_tree': self._model_is_tree, 'trained_at': datetime.now().isoformat(),
+                'is_tree': self._model_is_tree, 'features': FEATURE_COLUMNS,
+                'trained_at': datetime.now().isoformat(),
             }, open(self._model_file, 'wb'))
         except Exception as e:
             logger.warning(f"User {self.user_id}: Could not save model: {e}")
