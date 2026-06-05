@@ -576,13 +576,14 @@ class TradingService:
             data = pickle.load(open(self._model_file, 'rb'))
             # Feature-set guard: a model trained on a different feature set would
             # crash (or silently mispredict) when fed the current feature vector.
-            # Discard it and retrain from scratch rather than load a stale shape.
+            # Discard and retrain if features key is missing (old model, pre-versioning)
+            # OR if the stored list doesn't match the current canonical list.
             saved_features = data.get('features')
-            if saved_features is not None and saved_features != FEATURE_COLUMNS:
+            if saved_features != FEATURE_COLUMNS:
                 logger.warning(
                     f"User {self.user_id}: Persisted model feature set is stale "
-                    f"({len(saved_features)} feats vs current {len(FEATURE_COLUMNS)}) — "
-                    f"discarding and retraining."
+                    f"({len(saved_features) if saved_features else 'unknown'} feats "
+                    f"vs current {len(FEATURE_COLUMNS)}) — discarding and retraining."
                 )
                 return
             self.model = data['model']
