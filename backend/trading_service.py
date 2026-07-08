@@ -143,7 +143,10 @@ MIN_CONFIDENCE = 0.65
 TIMEFRAME = '5m'
 LOOKBACK_PERIODS = 1000
 TRADE_COOLDOWN = 300
-TAKER_FEE = 0.0006  # Blofin taker fee — applied at both entry and exit
+TAKER_FEE = 0.0006  # Blofin taker fee — market orders (exits)
+MAKER_FEE = 0.0002  # Blofin maker fee — post-only limit orders (entries)
+ENTRY_LIMIT_WAIT_S = 12   # how long a post-only entry may wait for a fill
+MAX_SPREAD_PCT = 0.0005   # skip entries when bid/ask spread > 5 bps (fee killer)
 
 VALID_TIMEFRAMES = ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '1d']
 
@@ -220,6 +223,7 @@ class TradingService:
         self.imputer = SimpleImputer(strategy='mean')
         self.last_trade_times = {}      # symbol → timestamp
         self.positions = {}             # symbol → position dict
+        self._reversal_streak = {}      # symbol → consecutive reversal-signal cycles
         self.entry_price = 0
         self.total_trades = 0
         self.winning_trades = 0
@@ -955,18 +959,41 @@ class TradingService:
             return max(1, self.max_positions // 2)
         return self.max_positions
 
+    def _realized_win_loss(self):
+        """Average realized winner and loser (as fraction of margin) from the last
+        30 closed trades. Returns (avg_win, avg_loss, n_closed). The realized
+        numbers reflect the ACTUAL exit engine (trail/breakeven/reversal), which is
+        what the nominal TP/SL settings do not."""
+        closed = [t for t in self.trades_history
+                  if t.get('type') == 'close' and t.get('pnl_pct') is not None][-30:]
+        wins   = [t['pnl_pct'] / 100 for t in closed if t['pnl_pct'] > 0]
+        losses = [abs(t['pnl_pct']) / 100 for t in closed if t['pnl_pct'] < 0]
+        avg_win  = sum(wins) / len(wins) if wins else 0.0
+        avg_loss = sum(losses) / len(losses) if losses else 0.0
+        return avg_win, avg_loss, len(closed)
+
     def _entry_ev(self, confidence: float) -> float:
         """
-        Expected value of the next trade as a fraction of margin, after round-trip
-        taker fees. Positive EV is the only valid reason to enter.
+        Expected value of the next trade as a fraction of margin, after fees.
           EV = p × net_win − (1−p) × net_loss
-          net_win  = take_profit_pct − fee_margin
-          net_loss = stop_loss_pct   + fee_margin
+
+        Once ≥10 trades are on record, win/loss sizes come from REALIZED history —
+        the actual exit engine's captures — so the gate self-calibrates to what the
+        bot really earns per winner and loses per loser. Before that, the nominal
+        TP is capped at 25% margin: with TP set to 100% (which trailing/reversal
+        exits mean it never reaches), the uncapped formula passed any confidence
+        above ~14%, making the gate decorative.
         """
         p = max(0.01, min(0.99, float(confidence)))
-        fee_m = 2 * TAKER_FEE * max(1, self.leverage)
-        net_win  = self.take_profit_pct - fee_m
-        net_loss = self.stop_loss_pct   + fee_m
+        fee_m = (MAKER_FEE + TAKER_FEE) * max(1, self.leverage)
+
+        avg_win, avg_loss, n = self._realized_win_loss()
+        if n >= 10 and avg_win > 0 and avg_loss > 0:
+            # Realized pnl_pct is already net of fees
+            return p * avg_win - (1 - p) * avg_loss
+
+        net_win  = min(self.take_profit_pct, 0.25) - fee_m
+        net_loss = self.stop_loss_pct + fee_m
         return p * net_win - (1 - p) * net_loss
 
     def _kelly_fraction(self) -> float:
@@ -1017,8 +1044,10 @@ class TradingService:
         Bounded to [risk_per_trade×0.25 .. risk_per_trade×3].
         """
         p = max(0.05, min(0.95, float(confidence)))
-        fee_m = 2 * TAKER_FEE * max(1, self.leverage)
-        net_win  = max(0.001, self.take_profit_pct - fee_m)
+        fee_m = (MAKER_FEE + TAKER_FEE) * max(1, self.leverage)
+        # Cap nominal TP at a realistic capture — trailing/breakeven exits mean a
+        # 100% TP never hits, and an inflated net_win overstates Kelly.
+        net_win  = max(0.001, min(self.take_profit_pct, 0.25) - fee_m)
         net_loss = self.stop_loss_pct + fee_m
         kelly = p - (1 - p) * (net_loss / net_win)
         half_kelly = kelly * 0.5
@@ -1527,8 +1556,15 @@ class TradingService:
         trigger, so the margin-risk per trade stays constant regardless of what
         leverage the optimizer selects.
 
-        Example: SL=15%, leverage=20x → price trigger = 15%/20 = 0.75% price move.
-                 SL=15%, leverage=10x → price trigger = 15%/10 = 1.5%  price move.
+        Exit engine, in priority order:
+          1. Stop Loss / Take Profit — hard boundaries.
+          2. Breakeven floor — once the trade has cleared round-trip fees plus a
+             buffer, arm a floor just above fee-breakeven. A winner can never
+             round-trip into a loser (the single biggest scalping edge-saver).
+          3. Trailing stop — while in profit, exit on retrace from peak.
+          4. Signal reversal — only with FULL entry-grade confidence, only after a
+             minimum hold, and only on the 2nd consecutive reversal cycle.
+             Cuts fee-churn from transient model flips on noisy candles.
         """
         entry = position['entry_price']
         leverage = max(1, position.get('leverage', self.leverage))
@@ -1546,7 +1582,17 @@ class TradingService:
         if margin_pnl_pct >= self.take_profit_pct:
             return True, 'Take Profit'
 
-        # Trailing stop — activates once the position is in profit.
+        # ── Breakeven floor ──────────────────────────────────────────────────
+        # Round-trip fee cost in margin terms (maker entry + taker exit).
+        fee_m = (MAKER_FEE + TAKER_FEE) * leverage
+        be_trigger = max(4 * fee_m, 0.05)     # arm once pnl ≥ max(4× fees, 5% margin)
+        be_floor   = 2 * fee_m                # lock in ≥ 2× fees = real net profit
+        if not position.get('be_armed') and margin_pnl_pct >= be_trigger:
+            position['be_armed'] = True
+        if position.get('be_armed') and margin_pnl_pct <= be_floor:
+            return True, 'Breakeven Floor'
+
+        # ── Trailing stop ────────────────────────────────────────────────────
         # trailing_stop_pct is also margin-%, so price trail = setting / leverage.
         trail_price_pct = self.trailing_stop_pct / leverage
         if price_pnl_pct > 0:
@@ -1557,12 +1603,33 @@ class TradingService:
                 if price >= position['low_water_mark'] * (1 + trail_price_pct):
                     return True, 'Trailing Stop'
 
-        # Signal reversal exit — lower threshold than entry (80%) to avoid lock-in
-        exit_thresh = self.min_confidence * 0.8
-        if ((signal == -1 and position['side'] == 'long') or
-                (signal == 1 and position['side'] == 'short')):
-            if confidence >= exit_thresh:
-                return True, 'Signal Reversal'
+        # ── Signal reversal (with hysteresis) ────────────────────────────────
+        is_reversal = ((signal == -1 and position['side'] == 'long') or
+                       (signal == 1 and position['side'] == 'short'))
+        symbol = position.get('symbol', '')
+        candle_s = self._get_timeframe_minutes() * 60
+        if is_reversal and confidence >= self.min_confidence:
+            # Minimum hold: the label horizon is ~5 candles; give the thesis at
+            # least 3 candles before a reversal can cut it (SL/TP/trail still live).
+            min_hold_s = 3 * candle_s
+            held = time.time() - position.get('opened_at', 0)
+            if held >= min_hold_s:
+                # Streak advances at most once per candle — live cycles run every
+                # 30s, and two intra-candle flickers must not count as two candles
+                # of confirmation.
+                now = time.time()
+                last_inc = position.get('rev_streak_ts', 0)
+                if now - last_inc >= candle_s * 0.8:
+                    streak = self._reversal_streak.get(symbol, 0) + 1
+                    self._reversal_streak[symbol] = streak
+                    position['rev_streak_ts'] = now
+                    if streak >= 2:
+                        return True, 'Signal Reversal'
+            # armed but not yet confirmed — wait for the next candle
+        else:
+            # Any non-reversal cycle resets the persistence counter
+            if symbol in self._reversal_streak:
+                self._reversal_streak[symbol] = 0
 
         return False, ''
 
@@ -1628,10 +1695,11 @@ class TradingService:
                 'side': pos_side, 'size': size, 'entry_price': price,
                 'symbol': symbol, 'margin': margin, 'leverage': dyn_lev,
                 'high_water_mark': price, 'low_water_mark': price,
-                'conf_tier': conf_tier,
+                'conf_tier': conf_tier, 'opened_at': time.time(),
             }
             self.entry_price = price
             self.last_trade_times[symbol] = time.time()
+            self._reversal_streak[symbol] = 0
             self.trades_history.append({
                 'type': 'open', 'side': pos_side, 'size': float(size), 'price': float(price),
                 'confidence': float(confidence), 'symbol': symbol, 'margin': float(margin),
@@ -1698,6 +1766,7 @@ class TradingService:
             mode = 'SIM' if self.simulation_mode else 'LIVE'
             logger.info(f"User {self.user_id}: [MANUAL/{mode}] Close {symbol} @ ${price:.2f} PnL ${pnl:.2f} ({lev_pct:.1f}%)")
             del self.positions[symbol]
+            self._reversal_streak[symbol] = 0
             if not self.simulation_mode:
                 self._sync_live_balance()
             return {'ok': True, 'pnl': pnl, 'pnl_pct': lev_pct, 'price': price}
@@ -1705,10 +1774,14 @@ class TradingService:
     def simulate_trade(self, signal, price, confidence, symbol=None, df=None):
         symbol = symbol or self.get_current_symbol()
         current_time = time.time()
-        if current_time - self.last_trade_times.get(symbol, 0) < self.trade_cooldown:
-            return
+        # Cooldown gates ENTRIES only — exit logic must run on every cycle so an
+        # open position is never left without stop-loss/trailing protection.
+        in_cooldown = current_time - self.last_trade_times.get(symbol, 0) < self.trade_cooldown
 
         position = self.positions.get(symbol)
+
+        if position is None and in_cooldown:
+            return
 
         if position is None and signal != 0 and confidence >= self.min_confidence:
             if self._is_drawdown_exceeded():
@@ -1741,9 +1814,11 @@ class TradingService:
                 'side': side, 'size': size, 'entry_price': price,
                 'symbol': symbol, 'margin': margin, 'leverage': dyn_lev,
                 'high_water_mark': price, 'low_water_mark': price,
+                'opened_at': current_time,
             }
             self.entry_price = price
             self.last_trade_times[symbol] = current_time
+            self._reversal_streak[symbol] = 0
 
             trade = {
                 'type': 'open', 'side': side, 'size': float(size), 'price': float(price),
@@ -1769,7 +1844,9 @@ class TradingService:
 
             if should_exit:
                 price_change = (price - position['entry_price']) if position['side'] == 'long' else (position['entry_price'] - price)
-                fee = (position['entry_price'] + price) * position['size'] * TAKER_FEE
+                # Maker fee on entry (post-only limit), taker on exit (market) —
+                # mirrors the live execution model.
+                fee = (position['entry_price'] * MAKER_FEE + price * TAKER_FEE) * position['size']
                 pnl = price_change * position['size'] - fee
                 self.total_pnl += pnl
                 self._day_pnl += pnl
@@ -1802,12 +1879,100 @@ class TradingService:
                     f"PnL ${pnl:.2f} ({lev_pct:.1f}%) fee=${fee:.2f} | Balance ${self.balance:.2f}"
                 )
                 del self.positions[symbol]
+                # Cooldown restarts from CLOSE too — prevents the reversal-exit →
+                # instant-re-entry ping-pong that burns a round trip of fees each time.
+                self.last_trade_times[symbol] = current_time
+                self._reversal_streak[symbol] = 0
+
+    def _place_entry_order(self, symbol, side, pos_side, amount, ref_price):
+        """
+        Maker-first entry execution. Entries are optional — unlike exits, we never
+        have to cross the spread for one, and at 8-10x leverage the taker fee plus
+        spread is a large share of a scalp's edge (0.06% taker vs 0.02% maker per
+        leg, ×leverage on margin).
+
+          1. Spread guard: skip entirely if bid/ask spread > MAX_SPREAD_PCT.
+          2. Post-only limit at the near touch (bid for long, ask for short).
+          3. Poll up to ENTRY_LIMIT_WAIT_S for a fill.
+          4. Full fill → done (maker). Partial ≥ 20% → cancel rest, keep the part.
+             Less → cancel, skip this entry (the signal can re-fire next cycle).
+          5. Any error in the maker path → market-order fallback (old behavior).
+
+        Returns (order, avg_fill_price, filled_amount_contracts, maker: bool)
+        or None if the entry should be skipped.
+        """
+        try:
+            ob = self.exchange.fetch_order_book(symbol, limit=5)
+            bid = float(ob['bids'][0][0]); ask = float(ob['asks'][0][0])
+            spread_pct = (ask - bid) / bid if bid > 0 else 1.0
+            if spread_pct > MAX_SPREAD_PCT:
+                logger.info(
+                    f"User {self.user_id}: [{symbol}] Entry skipped — spread "
+                    f"{spread_pct*10000:.1f} bps > {MAX_SPREAD_PCT*10000:.0f} bps limit"
+                )
+                return None
+
+            limit_price = bid if side == 'buy' else ask
+            order = self.exchange.create_order(
+                symbol=symbol, type='limit', side=side, amount=amount, price=limit_price,
+                params={'posSide': pos_side, 'postOnly': True},
+            )
+            order_id = order.get('id')
+
+            deadline = time.time() + ENTRY_LIMIT_WAIT_S
+            filled = 0.0
+            while time.time() < deadline:
+                time.sleep(2)
+                o = self.exchange.fetch_order(order_id, symbol)
+                filled = float(o.get('filled') or 0)
+                status = o.get('status')
+                if status == 'closed' or (amount > 0 and filled >= amount * 0.999):
+                    avg = float(o.get('average') or limit_price)
+                    logger.info(f"User {self.user_id}: [{symbol}] Maker entry filled @ ${avg:.4f}")
+                    return o, avg, filled, True
+                if status in ('canceled', 'rejected', 'expired'):
+                    # postOnly rejected because it would have crossed — price moved.
+                    logger.info(f"User {self.user_id}: [{symbol}] Maker entry {status} — skipping this cycle")
+                    return None
+
+            # Timeout: cancel the remainder
+            try:
+                self.exchange.cancel_order(order_id, symbol)
+            except Exception:
+                pass
+            if amount > 0 and filled >= amount * 0.20:
+                o = self.exchange.fetch_order(order_id, symbol)
+                avg = float(o.get('average') or limit_price)
+                logger.info(
+                    f"User {self.user_id}: [{symbol}] Maker entry PARTIAL "
+                    f"{filled/amount:.0%} @ ${avg:.4f} — keeping filled portion"
+                )
+                return o, avg, filled, True
+            logger.info(f"User {self.user_id}: [{symbol}] Maker entry unfilled in {ENTRY_LIMIT_WAIT_S}s — skipped")
+            return None
+
+        except Exception as e:
+            logger.warning(
+                f"User {self.user_id}: [{symbol}] Maker entry path failed "
+                f"({type(e).__name__}: {e}) — falling back to market order"
+            )
+            try:
+                order = self.exchange.create_order(
+                    symbol=symbol, type='market', side=side, amount=amount,
+                    params={'posSide': pos_side},
+                )
+                return order, ref_price, amount, False
+            except Exception as e2:
+                logger.error(f"User {self.user_id}: [{symbol}] Market fallback FAILED: {e2}")
+                return None
 
     def execute_live_trade(self, signal, price, confidence, symbol=None, df=None):
         symbol = symbol or self.get_current_symbol()
         current_time = time.time()
+        # Cooldown gates ENTRIES only — an open position must have its exit logic
+        # (SL/TP/trailing/breakeven) evaluated on every single cycle.
         cooldown_remaining = self.trade_cooldown - (current_time - self.last_trade_times.get(symbol, 0))
-        if cooldown_remaining > 0:
+        if cooldown_remaining > 0 and self.positions.get(symbol) is None:
             if confidence >= self.min_confidence:
                 logger.info(f"User {self.user_id}: [{symbol}] Signal skipped (conf={confidence:.1%}) — cooldown {cooldown_remaining:.0f}s remaining")
             return
@@ -1874,18 +2039,24 @@ class TradingService:
                 except Exception as e:
                     logger.error(f"User {self.user_id}: set_leverage({dyn_lev}x, {symbol}) FAILED — {type(e).__name__}: {e}.")
 
-                order = self.exchange.create_order(
-                    symbol=symbol, type='market', side=side, amount=amount,
-                    params={'posSide': pos_side},
-                )
+                fill = self._place_entry_order(symbol, side, pos_side, amount, price)
+                if fill is None:
+                    return  # spread too wide or maker order unfilled — skip, retry next cycle
+                order, fill_price, fill_size_contracts, maker_entry = fill
+                filled_size = fill_size_contracts * contract_size
+
                 self.positions[symbol] = {
-                    'side': pos_side, 'size': size, 'entry_price': price,
-                    'symbol': symbol, 'margin': margin, 'leverage': dyn_lev,
+                    'side': pos_side, 'size': filled_size, 'entry_price': fill_price,
+                    'symbol': symbol, 'margin': margin * (filled_size / size if size > 0 else 1),
+                    'leverage': dyn_lev,
                     'order_id': order.get('id'),
-                    'high_water_mark': price, 'low_water_mark': price,
+                    'high_water_mark': fill_price, 'low_water_mark': fill_price,
+                    'opened_at': current_time, 'maker_entry': maker_entry,
                 }
+                price, size = fill_price, filled_size  # for history/log below
                 self.entry_price = price
                 self.last_trade_times[symbol] = current_time
+                self._reversal_streak[symbol] = 0
 
                 self.trades_history.append({
                     'type': 'open', 'side': pos_side, 'size': float(size), 'price': float(price),
@@ -1936,7 +2107,9 @@ class TradingService:
                         return
 
                     price_change = (price - position['entry_price']) if position['side'] == 'long' else (position['entry_price'] - price)
-                    fee = (position['entry_price'] + price) * position['size'] * TAKER_FEE
+                    # Maker entry (post-only limit) + taker exit (market)
+                    entry_fee_rate = MAKER_FEE if position.get('maker_entry') else TAKER_FEE
+                    fee = (position['entry_price'] * entry_fee_rate + price * TAKER_FEE) * position['size']
                     pnl = price_change * position['size'] - fee
                     self.total_pnl += pnl
                     self._day_pnl += pnl
@@ -1969,6 +2142,9 @@ class TradingService:
                         f"PnL ${pnl:.2f} ({lev_pct:.1f}%) fee=${fee:.2f}"
                     )
                     del self.positions[symbol]
+                    # Cooldown restarts from CLOSE — no instant re-entry churn.
+                    self.last_trade_times[symbol] = current_time
+                    self._reversal_streak[symbol] = 0
                     # Don't sync immediately after close — the next entry's pre-trade
                     # sync (line ~1580) will pick up the settled balance accurately.
 
@@ -2042,7 +2218,15 @@ class TradingService:
         hwm = lwm = 0
         trades = []
         last_trade_candle = -999
+        entry_candle = -999
+        reversal_streak = 0
+        be_armed = False
         cooldown_candles = max(1, math.ceil(self.trade_cooldown / 60 / minutes_per_candle))
+        SLIPPAGE = 0.0005  # 5 bps slippage on the taker (exit) leg
+        bt_lev = max(1, getattr(self, 'leverage', 1))
+        fee_m_bt = (MAKER_FEE + TAKER_FEE) * bt_lev
+        be_trigger = max(4 * fee_m_bt, 0.05)
+        be_floor = 2 * fee_m_bt
         X_test, _ = self.prepare_features(test_df)
 
         for i in range(len(test_df)):
@@ -2056,16 +2240,14 @@ class TradingService:
                 sig_val = int(_decode_y([raw])[0]) if is_tree else int(raw)
                 conf = float(max(model.predict_proba(X_sc2)[0]))
 
-                if i - last_trade_candle < cooldown_candles:
-                    continue
-
                 # Entry quality filter — same gate as live trading
                 adx_raw = row.get('adx', 25); adx_f = 25.0 if pd.isna(adx_raw) else float(adx_raw)
                 vol_raw = row.get('volume_ratio', 1.0); vol_f = 1.0 if pd.isna(vol_raw) else float(vol_raw)
                 if position is None and sig_val != 0 and conf >= self.min_confidence and adx_f >= self.adx_threshold and vol_f >= 0.65:
+                    # Cooldown gates ENTRIES only — matches live engine
+                    if i - last_trade_candle < cooldown_candles:
+                        continue
                     # Margin formula mirrors live bot exactly: confidence scaling + risk_per_trade ceiling
-                    # (vol_mult removed — live bot doesn't apply it, so backtest must match)
-                    SLIPPAGE = 0.0005  # 5 bps round-trip slippage per leg (realistic for market orders)
                     profit = max(0, balance - balance_per_coin)
                     k = self.risk_per_trade  # Fixed fraction in backtest (Kelly needs live history)
                     margin = balance_per_coin * k + profit * k * self.profit_risk_multiplier
@@ -2081,7 +2263,7 @@ class TradingService:
 
                     notional = margin * self.leverage
                     size = notional / price
-                    entry_fee = notional * (TAKER_FEE + SLIPPAGE)
+                    entry_fee = notional * MAKER_FEE   # post-only limit entry
                     position = {
                         'side': 'long' if sig_val == 1 else 'short',
                         'size': size, 'margin': margin, 'entry_fee': entry_fee,
@@ -2089,6 +2271,9 @@ class TradingService:
                     entry_price = price
                     hwm = lwm = price
                     last_trade_candle = i
+                    entry_candle = i
+                    reversal_streak = 0
+                    be_armed = False
 
                 elif position is not None:
                     if position['side'] == 'long':
@@ -2100,7 +2285,6 @@ class TradingService:
                         (price - entry_price) / entry_price if position['side'] == 'long'
                         else (entry_price - price) / entry_price
                     )
-                    bt_lev = max(1, getattr(self, 'leverage', 1))
                     margin_pnl_pct = price_pnl_pct * bt_lev
                     trail_price_pct = self.trailing_stop_pct / bt_lev
 
@@ -2111,17 +2295,28 @@ class TradingService:
                     elif margin_pnl_pct >= self.take_profit_pct:
                         should_exit, exit_reason = True, 'Take Profit'
                     else:
-                        if price_pnl_pct > 0:
+                        # Breakeven floor — winner can't round-trip into a loser
+                        if not be_armed and margin_pnl_pct >= be_trigger:
+                            be_armed = True
+                        if be_armed and margin_pnl_pct <= be_floor:
+                            should_exit, exit_reason = True, 'Breakeven Floor'
+                        if not should_exit and price_pnl_pct > 0:
                             if position['side'] == 'long' and price <= hwm * (1 - trail_price_pct):
                                 should_exit, exit_reason = True, 'Trailing Stop'
                             elif position['side'] == 'short' and price >= lwm * (1 + trail_price_pct):
                                 should_exit, exit_reason = True, 'Trailing Stop'
                         if not should_exit:
-                            exit_conf = self.min_confidence * 0.8
-                            if ((sig_val == -1 and position['side'] == 'long') or
-                                    (sig_val == 1 and position['side'] == 'short')):
-                                if conf >= exit_conf:
+                            # Reversal hysteresis — full entry confidence, min-hold,
+                            # 2 consecutive reversal candles (matches live)
+                            is_rev = (sig_val != 0 and
+                                      ((sig_val == -1 and position['side'] == 'long') or
+                                       (sig_val == 1 and position['side'] == 'short')))
+                            if is_rev and conf >= self.min_confidence and (i - entry_candle) >= 3:
+                                reversal_streak += 1
+                                if reversal_streak >= 2:
                                     should_exit, exit_reason = True, 'Signal Reversal'
+                            else:
+                                reversal_streak = 0
 
                     if should_exit:
                         price_change = (price - entry_price) if position['side'] == 'long' else (entry_price - price)
@@ -2143,6 +2338,8 @@ class TradingService:
                         })
                         position = None
                         last_trade_candle = i
+                        reversal_streak = 0
+                        be_armed = False
             except Exception:
                 continue
 
@@ -2595,9 +2792,9 @@ class ParameterOptimizer:
     def _backtest_segment(self, fold, bot, params, start_balance):
         """Backtest one walk-forward fold's out-of-sample test_df under `params`.
         Returns (trades, final_balance, max_dd_pct). Mirrors the live entry/exit
-        logic exactly so optimizer results translate 1:1 to production."""
-        TAKER_FEE = 0.0006
-        SLIP = 0.0005  # 5 bps slippage per leg
+        engine exactly — maker entries, breakeven floor, reversal hysteresis,
+        cooldown gating entries only — so results translate 1:1 to production."""
+        SLIP = 0.0005  # 5 bps slippage on the taker (exit) leg
         model = fold['model']; imp = fold['imputer']; sc = fold['scaler']
         test_df = fold['test_df']; X_test = fold['X_test']; is_tree = fold['is_tree']
 
@@ -2609,13 +2806,20 @@ class ParameterOptimizer:
         hwm = lwm = 0
         trades = []
         last_trade_candle = -999
+        entry_candle = -999
+        reversal_streak = 0
+        be_armed = False
         minutes = bot._get_timeframe_minutes()
         cooldown_candles = max(1, math.ceil(params['trade_cooldown'] / 60 / minutes))
+        MIN_HOLD_CANDLES = 3   # matches live: 3 × timeframe before reversal exits
 
         opt_lev = max(1, params.get('leverage', 1))
-        fee_m = 2 * TAKER_FEE * opt_lev
-        net_win = max(0.001, params['take_profit_pct'] - fee_m)
+        # Maker entry + taker exit — matches the live execution model
+        fee_m = (MAKER_FEE + TAKER_FEE) * opt_lev
+        net_win = max(0.001, min(params['take_profit_pct'], 0.25) - fee_m)
         net_loss = params['stop_loss_pct'] + fee_m
+        be_trigger = max(4 * fee_m, 0.05)
+        be_floor = 2 * fee_m
 
         for i in range(len(test_df)):
             try:
@@ -2627,30 +2831,33 @@ class ParameterOptimizer:
                 sig_val = int(_decode_y([raw])[0]) if is_tree else int(raw)
                 conf = float(max(model.predict_proba(X_sc)[0]))
 
-                if i - last_trade_candle < cooldown_candles:
-                    continue
-
-                adx_o = row.get('adx', 25); adx_o = 25.0 if pd.isna(adx_o) else float(adx_o)
-                vol_o = row.get('volume_ratio', 1.0); vol_o = 1.0 if pd.isna(vol_o) else float(vol_o)
-                # EV gate — must match live: positive expected value after fees.
-                ev_o = conf * net_win - (1 - conf) * net_loss
-                if position is None and sig_val != 0 and conf >= params['min_confidence'] and adx_o >= params['adx_threshold'] and vol_o >= 0.65 and ev_o > 0:
-                    conf_rng_o = max(0.01, 1.0 - params['min_confidence'])
-                    c_scale_o = max(0.5, min(1.5, 0.5 + (conf - params['min_confidence']) / conf_rng_o))
-                    risk_ceil_o = min(max(params['risk_per_trade'] * 2.0, 0.10), 0.75)
-                    margin = min(balance * params['risk_per_trade'] * c_scale_o, balance * risk_ceil_o)
-                    if margin <= 0 or margin > balance * 0.95:
+                if position is None:
+                    # Cooldown gates ENTRIES only (matches live fix)
+                    if i - last_trade_candle < cooldown_candles:
                         continue
-                    notional = margin * params['leverage']
-                    size = notional / price
-                    entry_fee = notional * (TAKER_FEE + SLIP)
-                    position = {'side': 'long' if sig_val == 1 else 'short',
-                                'size': size, 'margin': margin, 'entry_fee': entry_fee}
-                    entry_price = price
-                    hwm = lwm = price
-                    last_trade_candle = i
+                    adx_o = row.get('adx', 25); adx_o = 25.0 if pd.isna(adx_o) else float(adx_o)
+                    vol_o = row.get('volume_ratio', 1.0); vol_o = 1.0 if pd.isna(vol_o) else float(vol_o)
+                    ev_o = conf * net_win - (1 - conf) * net_loss
+                    if sig_val != 0 and conf >= params['min_confidence'] and adx_o >= params['adx_threshold'] and vol_o >= 0.65 and ev_o > 0:
+                        conf_rng_o = max(0.01, 1.0 - params['min_confidence'])
+                        c_scale_o = max(0.5, min(1.5, 0.5 + (conf - params['min_confidence']) / conf_rng_o))
+                        risk_ceil_o = min(max(params['risk_per_trade'] * 2.0, 0.10), 0.75)
+                        margin = min(balance * params['risk_per_trade'] * c_scale_o, balance * risk_ceil_o)
+                        if margin <= 0 or margin > balance * 0.95:
+                            continue
+                        notional = margin * params['leverage']
+                        size = notional / price
+                        entry_fee = notional * MAKER_FEE   # post-only limit entry
+                        position = {'side': 'long' if sig_val == 1 else 'short',
+                                    'size': size, 'margin': margin, 'entry_fee': entry_fee}
+                        entry_price = price
+                        hwm = lwm = price
+                        last_trade_candle = i
+                        entry_candle = i
+                        reversal_streak = 0
+                        be_armed = False
 
-                elif position is not None:
+                else:
                     if position['side'] == 'long':
                         hwm = max(hwm, price)
                     else:
@@ -2667,17 +2874,28 @@ class ParameterOptimizer:
                     elif margin_pnl_pct >= params['take_profit_pct']:
                         should_exit = True
                     else:
-                        if price_pnl_pct > 0:
+                        # Breakeven floor — winner can't become a loser
+                        if not be_armed and margin_pnl_pct >= be_trigger:
+                            be_armed = True
+                        if be_armed and margin_pnl_pct <= be_floor:
+                            should_exit = True
+                        if not should_exit and price_pnl_pct > 0:
                             if position['side'] == 'long' and price <= hwm * (1 - trail_price_pct):
                                 should_exit = True
                             elif position['side'] == 'short' and price >= lwm * (1 + trail_price_pct):
                                 should_exit = True
                         if not should_exit:
-                            exit_conf = params['min_confidence'] * 0.8
-                            if sig_val != 0 and conf >= exit_conf:
-                                if (sig_val == -1 and position['side'] == 'long') or \
-                                   (sig_val == 1 and position['side'] == 'short'):
+                            # Reversal hysteresis: full entry confidence, min-hold,
+                            # 2 consecutive reversal candles (matches live)
+                            is_rev = (sig_val != 0 and
+                                      ((sig_val == -1 and position['side'] == 'long') or
+                                       (sig_val == 1 and position['side'] == 'short')))
+                            if is_rev and conf >= params['min_confidence'] and (i - entry_candle) >= MIN_HOLD_CANDLES:
+                                reversal_streak += 1
+                                if reversal_streak >= 2:
                                     should_exit = True
+                            else:
+                                reversal_streak = 0
 
                     if should_exit:
                         price_change = ((price - entry_price) if position['side'] == 'long'
@@ -2692,6 +2910,8 @@ class ParameterOptimizer:
                         trades.append({'pnl': net_pnl})
                         position = None
                         last_trade_candle = i
+                        reversal_streak = 0
+                        be_armed = False
             except Exception:
                 continue
 
