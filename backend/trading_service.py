@@ -1603,11 +1603,22 @@ class TradingService:
                 if price >= position['low_water_mark'] * (1 + trail_price_pct):
                     return True, 'Trailing Stop'
 
+        # ── Time stop: thesis expiry ─────────────────────────────────────────
+        # The model's label horizon is ~5 candles. A position that hasn't reached
+        # the breakeven trigger within 8 candles is uninformed exposure — the
+        # signal's predictive window has passed. Exit and recycle the capital into
+        # the next fresh signal (this is what makes high frequency compound: margin
+        # is never parked in dead trades).
+        candle_s = self._get_timeframe_minutes() * 60
+        if not position.get('be_armed'):
+            age_s = time.time() - position.get('opened_at', 0)
+            if position.get('opened_at') and age_s >= 8 * candle_s:
+                return True, 'Time Stop'
+
         # ── Signal reversal (with hysteresis) ────────────────────────────────
         is_reversal = ((signal == -1 and position['side'] == 'long') or
                        (signal == 1 and position['side'] == 'short'))
         symbol = position.get('symbol', '')
-        candle_s = self._get_timeframe_minutes() * 60
         if is_reversal and confidence >= self.min_confidence:
             # Minimum hold: the label horizon is ~5 candles; give the thesis at
             # least 3 candles before a reversal can cut it (SL/TP/trail still live).
@@ -2300,6 +2311,9 @@ class TradingService:
                             be_armed = True
                         if be_armed and margin_pnl_pct <= be_floor:
                             should_exit, exit_reason = True, 'Breakeven Floor'
+                        # Time stop — thesis expired, recycle capital (matches live)
+                        if not should_exit and not be_armed and (i - entry_candle) >= 8:
+                            should_exit, exit_reason = True, 'Time Stop'
                         if not should_exit and price_pnl_pct > 0:
                             if position['side'] == 'long' and price <= hwm * (1 - trail_price_pct):
                                 should_exit, exit_reason = True, 'Trailing Stop'
@@ -2878,6 +2892,9 @@ class ParameterOptimizer:
                         if not be_armed and margin_pnl_pct >= be_trigger:
                             be_armed = True
                         if be_armed and margin_pnl_pct <= be_floor:
+                            should_exit = True
+                        # Time stop — thesis expired, recycle capital (matches live)
+                        if not should_exit and not be_armed and (i - entry_candle) >= 8:
                             should_exit = True
                         if not should_exit and price_pnl_pct > 0:
                             if position['side'] == 'long' and price <= hwm * (1 - trail_price_pct):
