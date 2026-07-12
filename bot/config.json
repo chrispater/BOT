@@ -1,0 +1,15 @@
+{
+  "mode": "live",
+  "account_number": "957796733",
+  "risk": {
+    "max_position_pct_of_equity": 25,
+    "daily_loss_stop_pct": 10,
+    "max_open_positions": 8,
+    "per_position_stop_loss_pct": 5,
+    "per_position_take_profit_pct": 10
+  },
+  "universe": ["IBIT", "ETHA", "COIN", "MSTR", "NVDA", "TSLA", "QQQ", "SPY"],
+  "min_order_usd": 5.0,
+  "cash_reserve_usd": 1.0,
+  "order_style": "market_dollar_amount_regular_hours"
+}
