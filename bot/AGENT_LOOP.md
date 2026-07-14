@@ -1,4 +1,4 @@
-# Autonomous Trading Loop — Runbook
+# Autonomous Trading Loop — Runbook (v2: Python decision engine)
 
 You are one cycle of an autonomous equity trading loop for this repository's owner.
 Execute this runbook exactly. Do not improvise beyond it. Equities only, in the one
@@ -12,89 +12,98 @@ Claude Code session. `review_equity_order` must still be called before every
 document, so do not wait for a human reply — but abort any order whose review
 returns a blocking alert.
 
+**Division of labor**: ALL trading decisions are made by the deterministic Python
+engine in `bot/strategy/` (ML ensemble + pattern setups + risk governors, ported
+from the owner's CryptoQuantScanner). Your job is only: gather data via MCP tools,
+run the engine, execute its decisions faithfully, persist state. Never override,
+add to, or filter the engine's decisions except where a gate below says to.
+
 ## 0. Safety gates (run first, in order)
 
 1. `git pull origin claude/robinhood-trading-mcp-iiup95` to ensure `bot/` files are current.
 2. If a file `bot/KILL_SWITCH` exists → log `{"event":"kill_switch"}` and STOP. Do nothing else.
 3. Determine current time in ET. If it is a weekend, a US market holiday, before
    9:30 ET, or after 15:55 ET → STOP silently (no commit needed).
-4. Read `bot/config.json` (all limits below come from it) and `bot/state.json`.
+4. Read `bot/config.json` and `bot/state.json`.
 5. If Robinhood MCP tools fail with an authorization error → log
    `{"event":"auth_failure"}`, commit, and end your turn stating clearly that the
-   Robinhood connector needs re-authorization. Do not retry.
+   Robinhood connector needs re-authorization. Do not retry, do not trade.
 
 ## 1. Daily rollover
 
-If `state.date_et` ≠ today (ET):
-- Call `get_portfolio` for the account; set `state.date_et` = today,
-  `state.start_of_day_equity` = `total_value`, `state.halted_today` = false.
+If `state.date_et` ≠ today (ET): call `get_portfolio`; set `state.date_et` = today,
+`state.start_of_day_equity` = `total_value`, `state.halted_today` = false.
+If `state.halted_today` is true → STOP (commit state, end turn quietly).
 
-## 2. Daily loss stop
+## 2. Gather the snapshot (MCP tools, read-only)
 
-- If `state.halted_today` is true → STOP (commit state, end turn quietly).
-- Call `get_portfolio`; let `equity` = `total_value`.
-- If `(start_of_day_equity − equity) / start_of_day_equity ≥ daily_loss_stop_pct%`:
-  sell ALL open positions (market, regular_hours, full `shares_available_for_sells`),
-  set `halted_today = true`, log each sale with reason `"daily_stop"`, commit, and
-  end turn with a clear summary. Trading resumes automatically next day via rollover.
+1. `get_portfolio` → equity (`total_value`), `buying_power.buying_power`.
+2. `get_equity_positions` → open positions (symbol, quantity,
+   `shares_available_for_sells`, `average_buy_price`).
+3. For every symbol in `config.universe` PLUS every held symbol not in the
+   universe: `get_equity_historicals`, interval `hour`, regular bounds, from
+   `strategy.history_days` days ago to now. If the bar cap is exceeded, narrow to
+   45 then 30 days (never below 30).
+4. For `strategy.regime_symbol` (SPY): `get_equity_historicals`, interval `day`,
+   last 120 days.
+5. Build `input.json` in the schema documented at the top of
+   `bot/strategy/run_cycle.py`: today's ET date, config, state, portfolio,
+   positions, the parsed lines of `bot/trade_log.jsonl` as `trade_history`, hourly
+   bars per symbol (oldest first, RFC3339 timestamps), SPY daily bars as
+   `regime_bars`.
 
-## 3. Manage open positions
+## 3. Run the decision engine
 
-Source of truth for positions is `get_equity_positions` (use
-`shares_available_for_sells` and `average_buy_price`). `state.positions` carries
-supplemental metadata: `{symbol: {entry_date_et, entry_reason}}`. Reconcile: drop
-state entries for positions that no longer exist; add entries (entry_date_et =
-today, reason "reconciled") for broker positions missing from state.
+```
+pip install -q -r bot/requirements.txt
+python -m bot.strategy.run_cycle input.json decisions.json
+```
 
-For each open position, get a quote (`get_equity_quotes`) and compute
-`pnl_pct = (last_price − average_buy_price) / average_buy_price`. SELL the full
-position (market, regular_hours, fresh UUID `ref_id`, review first) if ANY of:
-- `pnl_pct ≤ −per_position_stop_loss_pct%`  → reason `"stop_loss"`
-- `pnl_pct ≥ +per_position_take_profit_pct%` → reason `"take_profit"`
-- Exit signal: supertrend (interval `hour`, period 10, multiplier 3, last ~10
-  trading days) has flipped to downtrend, OR RSI(14, `hour`) > 80 → reason `"signal_exit"`
+If the engine crashes: take NO trading action, log `{"event":"error"}` with the
+traceback summary, commit, and report the failure in your final summary.
 
-Good-faith-violation guard: this is a cash account. Avoid selling a position on
-the same day it was bought (`entry_date_et` == today) unless the stop_loss or
-daily_stop rule forces it. Signal exits and take profits wait until the next day.
+## 4. Execute decisions — exits first, then entries
 
-## 4. New entries
+For every item in `decisions.exits`:
+- Market sell, `regular_hours`, quantity = the decision's `quantity`
+  (= `shares_available_for_sells`), `time_in_force=gfd`, fresh UUID `ref_id`.
+- `review_equity_order` first; abort on blocking alerts. On transient transport
+  failure retry ONCE with the SAME ref_id.
+- Log with the engine's `reason` and, once known, realized `pnl_pct`
+  (from the fill price vs `average_buy_price`) — the engine's Kelly/EV/adaptive
+  governors learn from these log lines, so `pnl_pct` on sells is REQUIRED.
 
-Skip entirely if: `halted_today`, or open positions ≥ `max_open_positions`, or
-`buying_power` − `cash_reserve_usd` < `min_order_usd`.
+If `decisions.halt` is true: after executing the exit list, set
+`state.halted_today = true`, log `{"event":"halt"}` with `halt_reason`, commit,
+and end with a clear summary. Do not process entries.
 
-For each universe symbol NOT already held, compute on interval `hour` over the
-last ~10 trading days (use `output: "latest"` where possible):
-- supertrend(10, 3) — require **uptrend**
-- RSI(14) — require **50 ≤ RSI ≤ 70**
-Both true → candidate. Rank candidates by roc(14, `hour`) descending (strongest
-momentum first).
+For every item in `decisions.entries`:
+- Market buy, `dollar_amount` as given, `regular_hours`, `time_in_force=gfd`,
+  fresh UUID `ref_id`. Review → place, same retry rule.
+- If a review reports insufficient buying power, skip the remaining entries.
 
-For each candidate in rank order, while slots and cash remain:
-- `size_usd = min(max_position_pct_of_equity% × equity, buying_power − cash_reserve_usd)`,
-  rounded down to cents. Skip if < `min_order_usd`.
-- Order: `type=market`, `dollar_amount=size_usd`, `side=buy`,
-  `market_hours=regular_hours`, `time_in_force=gfd`, fresh UUID `ref_id`.
-- `review_equity_order` first. Any blocking alert (halted instrument, insufficient
-  buying power, etc.) → skip this candidate, log the alert. Otherwise
-  `place_equity_order` with the SAME parameters and ref_id. On transient transport
-  failure, retry once with the SAME ref_id; never retry with a new ref_id.
-- Record in `state.positions[symbol] = {entry_date_et: today, entry_reason: "supertrend_rsi_momentum"}`.
+## 5. Persist state and log (every cycle that passes gate 0.3)
 
-## 5. Logging and persistence (every cycle that passes gate 0.3)
-
+- Merge `decisions.state_updates` into `bot/state.json`:
+  `state.positions` = `decisions.state_updates.positions` (drop exited symbols;
+  entries the broker rejected must also be dropped), `state.peak_equity` =
+  `decisions.state_updates.peak_equity`, update `state.last_run_utc`.
 - Append one JSON line per action to `bot/trade_log.jsonl`:
-  `{"ts": <UTC RFC3339>, "event": "buy"|"sell"|"halt"|"skip"|"error", "symbol", "dollar_amount"|"quantity", "price_ref", "reason", "ref_id", "order_state"}`
-  plus a final `{"event":"cycle_summary", "equity", "cash", "open_positions", "actions": n}` line.
-- Update `state.last_run_utc`; write `bot/state.json`.
-- Commit with message `bot: cycle YYYY-MM-DD HH:MM ET — <n> actions` and push to
-  `claude/robinhood-trading-mcp-iiup95` (`git push -u origin ...`; on rejection,
-  `git pull --rebase` then push; retry up to 4 times with backoff).
+  `{"ts", "event": "buy"|"sell"|"halt"|"skip"|"error", "symbol",
+    "dollar_amount"|"quantity", "price_ref", "reason", "ref_id", "order_state",
+    "pnl_pct"}` (pnl_pct on sells only), plus a final
+  `{"event":"cycle_summary", "equity", "buying_power", "open_positions",
+    "regime", "actions": n}` line using `decisions.diagnostics`.
+- Commit `bot/state.json` + `bot/trade_log.jsonl` with message
+  `bot: cycle YYYY-MM-DD HH:MM ET — <n> actions`; push to
+  `claude/robinhood-trading-mcp-iiup95` (on rejection `git pull --rebase` then
+  push; retry up to 4 times with backoff). Do NOT commit input.json/decisions.json.
 
 ## 6. End of cycle
 
-End your turn with a 2–4 sentence summary: equity, day P&L, actions taken (or
-"no action"), and any warnings. If anything failed in a way this runbook does not
-cover, take NO further trading action, log it, commit, and describe it in the
-summary. Never exceed the config limits. Never trade options, crypto, or any
-other account. Never modify this runbook or config — only the owner does that.
+End your turn with a 2–4 sentence summary: equity, day P&L, regime, actions taken
+(or "no action"), and any warnings. If anything failed in a way this runbook does
+not cover, take NO further trading action, log it, commit, and describe it in the
+summary. Never exceed the config limits. Never trade options, crypto, or any other
+account. Never modify the runbook, config, or `bot/strategy/` code — only the
+owner does that.

@@ -1,6 +1,7 @@
 {
   "date_et": null,
   "start_of_day_equity": null,
+  "peak_equity": null,
   "halted_today": false,
   "positions": {},
   "last_run_utc": null
