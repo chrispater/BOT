@@ -148,6 +148,13 @@ MAKER_FEE = 0.0002  # Blofin maker fee — post-only limit orders (entries)
 ENTRY_LIMIT_WAIT_S = 12   # how long a post-only entry may wait for a fill
 MAX_SPREAD_PCT = 0.0005   # skip entries when bid/ask spread > 5 bps (fee killer)
 
+# ── Setup-detector stream ──
+# Deterministic technical setups (RSI bounce, divergence, breakout, shakeout)
+# trade as a SECOND signal stream alongside the ML model. They have their own
+# confidence floor — the ML min_confidence gate applies to ML-originated
+# signals, not to pattern setups, which carry their own strict entry conditions.
+SETUP_MIN_CONFIDENCE = 0.72
+
 VALID_TIMEFRAMES = ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '1d']
 
 # Canonical model feature set. Single source of truth so prepare_features() and the
@@ -849,6 +856,126 @@ class TradingService:
         except Exception as e:
             logger.debug(f"User {self.user_id}: SignalEngine blend failed: {e}")
             return ml_signal, ml_conf
+
+    # ── Setup detectors (second signal stream) ──────────────────────────────
+
+    def detect_setups(self, df):
+        """
+        Deterministic technical setups evaluated on the LAST CLOSED candle
+        (df.iloc[-2] — the last row is the still-forming candle and its close/
+        low/high are not final). Returns a list of {'signal', 'confidence',
+        'name'} dicts. Each setup encodes a classic, well-documented pattern:
+
+          rsi_bounce    — oversold RSI hooking upward off a stabilizing low
+          rsi_fade      — overbought RSI rolling over from a high
+          divergence    — price lower-low with RSI higher-low (bullish) / mirror
+          breakout      — new 20-bar high/low on strong volume, trend confirmed
+          shakeout      — stop-hunt wick through the 20-bar range edge that
+                          closes back inside on volume (spring / upthrust)
+
+        All conditions use indicator columns calculate_indicators() computed.
+        """
+        setups = []
+        if df is None or len(df) < 30:
+            return setups
+        hist = df.iloc[:-1]          # closed candles only
+        row = hist.iloc[-1]          # last closed candle
+        prev = hist.iloc[-2]
+
+        def g(r, col, default):
+            v = r.get(col, default)
+            return default if pd.isna(v) else float(v)
+
+        rsi = g(row, 'rsi', 50); rsi_prev2 = g(hist.iloc[-3], 'rsi', 50)
+        vol = g(row, 'volume_ratio', 1.0)
+        rng5 = g(row, 'range_pos_5', 0.5)
+        ema_dist = g(row, 'ema200_distance', 0.0)
+        adx = g(row, 'adx', 20)
+        close = g(row, 'close', 0); prev_close = g(prev, 'close', 0)
+        vol_bonus = 0.04 if vol >= 2.0 else (0.02 if vol >= 1.5 else 0.0)
+
+        try:
+            # 1. RSI oversold bounce (long) — hooked up off the low, not a knife
+            if (rsi < 32 and rsi > rsi_prev2 + 1.5 and rng5 > 0.25
+                    and ema_dist > -0.05 and close > prev_close):
+                setups.append({'signal': 1, 'confidence': 0.74 + vol_bonus, 'name': 'rsi_bounce'})
+            # RSI overbought fade (short)
+            if (rsi > 68 and rsi < rsi_prev2 - 1.5 and rng5 < 0.75
+                    and ema_dist < 0.05 and close < prev_close):
+                setups.append({'signal': -1, 'confidence': 0.74 + vol_bonus, 'name': 'rsi_fade'})
+        except Exception:
+            pass
+
+        try:
+            # 2. RSI divergence over the last 20 closed candles
+            seg = hist.tail(20)
+            if len(seg) >= 20 and seg['rsi'].notna().all():
+                lo_r, lo_p = seg['low'].iloc[-7:], seg['low'].iloc[:-7]
+                rs_r, rs_p = seg['rsi'].iloc[-7:], seg['rsi'].iloc[:-7]
+                hi_r, hi_p = seg['high'].iloc[-7:], seg['high'].iloc[:-7]
+                # Bullish: price lower low, RSI higher low, bounce started
+                if (lo_r.min() < lo_p.min() and rs_r.min() > rs_p.min() + 2
+                        and rsi < 45 and close > prev_close):
+                    setups.append({'signal': 1, 'confidence': 0.78 + vol_bonus, 'name': 'bull_divergence'})
+                # Bearish: price higher high, RSI lower high, rollover started
+                if (hi_r.max() > hi_p.max() and rs_r.max() < rs_p.max() - 2
+                        and rsi > 55 and close < prev_close):
+                    setups.append({'signal': -1, 'confidence': 0.78 + vol_bonus, 'name': 'bear_divergence'})
+        except Exception:
+            pass
+
+        try:
+            # 3. Breakout — new 20-bar extreme on real volume with trend strength
+            if g(row, 'is_new_high', 0) >= 1 and vol >= 1.5 and adx >= 18:
+                setups.append({'signal': 1, 'confidence': 0.76 + vol_bonus, 'name': 'breakout_long'})
+            if g(row, 'is_new_low', 0) >= 1 and vol >= 1.5 and adx >= 18:
+                setups.append({'signal': -1, 'confidence': 0.76 + vol_bonus, 'name': 'breakout_short'})
+        except Exception:
+            pass
+
+        try:
+            # 4. Shakeout — wick through the prior range edge, close back inside
+            dc_low_prev = g(prev, 'donchian_low', float('nan'))
+            dc_high_prev = g(prev, 'donchian_high', float('nan'))
+            if not math.isnan(dc_low_prev) and vol >= 1.3:
+                if g(row, 'low', 0) < dc_low_prev and close > dc_low_prev:
+                    setups.append({'signal': 1, 'confidence': 0.78 + vol_bonus, 'name': 'shakeout_spring'})
+            if not math.isnan(dc_high_prev) and vol >= 1.3:
+                if g(row, 'high', 0) > dc_high_prev and close < dc_high_prev:
+                    setups.append({'signal': -1, 'confidence': 0.78 + vol_bonus, 'name': 'shakeout_upthrust'})
+        except Exception:
+            pass
+
+        return setups
+
+    def _best_setup(self, symbol, df, ml_signal, ml_conf):
+        """
+        Resolve fired setups against the ML opinion. Returns (signal, confidence,
+        name) or (0, 0.0, None).
+          • Conflicting directions in the same candle → stand down.
+          • ML strongly disagrees (opposite at ≥80%) → veto.
+          • ML agrees → +0.08 confidence boost (pushes the trade into a higher
+            dynamic-leverage tier — patterns confirmed by the model ride bigger).
+          • Multiple same-direction setups stack +0.03 each.
+        """
+        fired = self.detect_setups(df)
+        if not fired:
+            return 0, 0.0, None
+        longs  = [s for s in fired if s['signal'] == 1]
+        shorts = [s for s in fired if s['signal'] == -1]
+        if longs and shorts:
+            return 0, 0.0, None
+        group = longs or shorts
+        sig = group[0]['signal']
+        if ml_signal == -sig and ml_conf >= 0.80:
+            logger.info(f"User {self.user_id}: [{symbol}] Setup vetoed — ML opposes at {ml_conf:.0%}")
+            return 0, 0.0, None
+        conf = max(s['confidence'] for s in group) + 0.03 * (len(group) - 1)
+        if ml_signal == sig:
+            conf += 0.08
+        conf = min(0.93, conf)
+        name = '+'.join(s['name'] for s in group)
+        return sig, conf, name
 
     # ── Risk helpers ────────────────────────────────────────────────────────
 
@@ -1782,7 +1909,7 @@ class TradingService:
                 self._sync_live_balance()
             return {'ok': True, 'pnl': pnl, 'pnl_pct': lev_pct, 'price': price}
 
-    def simulate_trade(self, signal, price, confidence, symbol=None, df=None):
+    def simulate_trade(self, signal, price, confidence, symbol=None, df=None, setup_name=None):
         symbol = symbol or self.get_current_symbol()
         current_time = time.time()
         # Cooldown gates ENTRIES only — exit logic must run on every cycle so an
@@ -1794,7 +1921,10 @@ class TradingService:
         if position is None and in_cooldown:
             return
 
-        if position is None and signal != 0 and confidence >= self.min_confidence:
+        # Setup-originated signals carry their own confidence floor (checked at
+        # the call site); ML-originated signals use the user's min_confidence.
+        conf_ok = (confidence >= self.min_confidence) or (setup_name is not None)
+        if position is None and signal != 0 and conf_ok:
             if self._is_drawdown_exceeded():
                 return
             if self._check_performance_floor():
@@ -1819,7 +1949,10 @@ class TradingService:
             notional = margin * dyn_lev
             size = notional / price
             side = 'long' if signal == 1 else 'short'
-            conf_tier = 'NO-BRAINER' if confidence >= 0.85 else ('STRONG' if confidence >= 0.75 else 'MODERATE')
+            if setup_name:
+                conf_tier = f'SETUP:{setup_name}'
+            else:
+                conf_tier = 'NO-BRAINER' if confidence >= 0.85 else ('STRONG' if confidence >= 0.75 else 'MODERATE')
 
             self.positions[symbol] = {
                 'side': side, 'size': size, 'entry_price': price,
@@ -1834,7 +1967,7 @@ class TradingService:
             trade = {
                 'type': 'open', 'side': side, 'size': float(size), 'price': float(price),
                 'confidence': float(confidence), 'symbol': symbol, 'margin': float(margin),
-                'leverage': dyn_lev, 'conf_tier': conf_tier,
+                'leverage': dyn_lev, 'conf_tier': conf_tier, 'setup': setup_name,
                 'regime': self.market_regime, 'time': datetime.now().isoformat(),
             }
             self.trades_history.append(trade)
@@ -1977,7 +2110,7 @@ class TradingService:
                 logger.error(f"User {self.user_id}: [{symbol}] Market fallback FAILED: {e2}")
                 return None
 
-    def execute_live_trade(self, signal, price, confidence, symbol=None, df=None):
+    def execute_live_trade(self, signal, price, confidence, symbol=None, df=None, setup_name=None):
         symbol = symbol or self.get_current_symbol()
         current_time = time.time()
         # Cooldown gates ENTRIES only — an open position must have its exit logic
@@ -1993,7 +2126,10 @@ class TradingService:
             sig_label = 'LONG' if signal == 1 else ('SHORT' if signal == -1 else 'FLAT')
             logger.info(f"User {self.user_id}: [{symbol}] Cycle — signal={sig_label} conf={confidence:.1%} threshold={self.min_confidence:.1%} position={'open' if position else 'none'}")
 
-            if position is None and signal != 0 and confidence >= self.min_confidence:
+            # Setup-originated signals carry their own confidence floor (checked
+            # at the call site); ML-originated signals use min_confidence.
+            conf_ok = (confidence >= self.min_confidence) or (setup_name is not None)
+            if position is None and signal != 0 and conf_ok:
                 if self._is_drawdown_exceeded():
                     logger.warning(f"User {self.user_id}: [{symbol}] Entry blocked — max drawdown limit reached")
                     return
@@ -2033,7 +2169,10 @@ class TradingService:
                 size = notional / price
                 side = 'buy' if signal == 1 else 'sell'
                 pos_side = 'long' if signal == 1 else 'short'
-                conf_tier = 'NO-BRAINER' if confidence >= 0.85 else ('STRONG' if confidence >= 0.75 else 'MODERATE')
+                if setup_name:
+                    conf_tier = f'SETUP:{setup_name}'
+                else:
+                    conf_tier = 'NO-BRAINER' if confidence >= 0.85 else ('STRONG' if confidence >= 0.75 else 'MODERATE')
 
                 market = self.exchange.market(symbol)
                 contract_size = market.get('contractSize', 1) or 1
@@ -2072,7 +2211,7 @@ class TradingService:
                 self.trades_history.append({
                     'type': 'open', 'side': pos_side, 'size': float(size), 'price': float(price),
                     'confidence': float(confidence), 'symbol': symbol, 'margin': float(margin),
-                    'leverage': dyn_lev, 'conf_tier': conf_tier,
+                    'leverage': dyn_lev, 'conf_tier': conf_tier, 'setup': setup_name,
                     'regime': self.market_regime, 'time': datetime.now().isoformat(),
                 })
                 if self.on_trade:
@@ -2505,6 +2644,23 @@ class TradingService:
             latest = df_ind.iloc[-1]
             price = float(latest['close'])
 
+            # ── Setup-detector stream ────────────────────────────────────────
+            # When the ML stream isn't trading this candle (flat or below its
+            # confidence gate), check the deterministic pattern setups. Evaluated
+            # once per NEW candle, on the last closed candle — a forming candle's
+            # wick/close isn't final and must not trigger pattern entries.
+            setup_name = None
+            if (new_candle and self.positions.get(symbol) is None
+                    and (signal == 0 or confidence < self.min_confidence)):
+                s_sig, s_conf, s_name = self._best_setup(symbol, df_ind, signal, confidence)
+                if s_sig != 0 and s_conf >= SETUP_MIN_CONFIDENCE:
+                    signal, confidence = s_sig, s_conf
+                    setup_name = s_name
+                    logger.info(
+                        f"User {self.user_id}: [{symbol}] SETUP fired: {s_name} "
+                        f"{'LONG' if s_sig == 1 else 'SHORT'} conf={s_conf:.0%}"
+                    )
+
             signal_data = {
                 'signal': int(signal),
                 'confidence': float(confidence),
@@ -2526,9 +2682,9 @@ class TradingService:
 
             with self._trade_lock:
                 if self.simulation_mode:
-                    self.simulate_trade(signal, price, confidence, symbol=symbol, df=df_ind)
+                    self.simulate_trade(signal, price, confidence, symbol=symbol, df=df_ind, setup_name=setup_name)
                 else:
-                    self.execute_live_trade(signal, price, confidence, symbol=symbol, df=df_ind)
+                    self.execute_live_trade(signal, price, confidence, symbol=symbol, df=df_ind, setup_name=setup_name)
 
             results.append(signal_data)
 
