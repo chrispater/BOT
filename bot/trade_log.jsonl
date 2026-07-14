@@ -1,1 +1,2 @@
 {"ts": "2026-07-12T18:25:00Z", "event": "init", "note": "bot created; live mode; aggressive limits; first eligible cycle Mon 2026-07-13 09:30 ET"}
+{"ts": "2026-07-14T13:34:49Z", "event": "auth_failure", "note": "cycle 2026-07-14 09:34 ET: robinhood-trading MCP requires authentication in-session; account-level connector auth did not propagate; no trades"}
