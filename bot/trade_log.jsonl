@@ -13,3 +13,4 @@
 {"ts": "2026-07-15T15:35:28Z", "event": "auth_failure", "note": "cycle 2026-07-15 11:34 ET: tools still absent; fresh-session AUTH_TEST fired 11:29 ET, no PR comment yet"}
 {"ts": "2026-07-15T15:46:53Z", "event": "buy", "symbol": "ETHA", "dollar_amount": "7.50", "price_ref": 14.57, "reason": "ml_ensemble conf=0.653 ev=0.046 regime=bull", "ref_id": "7c9e6b3a-4f2d-4e8a-9c1b-2a5d8e7f0a41", "order_id": "6a57ab5c-dc01-4561-9f0f-f50bbbd8ef94", "order_state": "unconfirmed"}
 {"ts": "2026-07-15T15:46:53Z", "event": "cycle_summary", "equity": 50.0, "buying_power": 50.0, "open_positions": 1, "regime": "bull", "actions": 1, "note": "FIRST LIVE CYCLE: auth via account connector reconnect; buy ETHA $7.50"}
+{"ts": "2026-07-15T16:35:30Z", "event": "auth_failure", "note": "cycle 2026-07-15 12:34 ET: Robinhood connector detached again after container recycle; OPEN POSITION ETHA UNMANAGED this cycle; owner fix: /mcp reconnect all"}
