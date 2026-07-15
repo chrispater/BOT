@@ -16,3 +16,4 @@
 {"ts": "2026-07-15T16:35:30Z", "event": "auth_failure", "note": "cycle 2026-07-15 12:34 ET: Robinhood connector detached again after container recycle; OPEN POSITION ETHA UNMANAGED this cycle; owner fix: /mcp reconnect all"}
 {"ts": "2026-07-15T18:35:02Z", "event": "auth_failure", "note": "cycle 2026-07-15 13:34 ET: robinhood-trading still not attached despite owner /mcp try attempts; ETHA position unmanaged 2nd consecutive cycle"}
 {"ts": "2026-07-15T18:35:42Z", "event": "auth_failure", "note": "cycle 2026-07-15 14:35 ET: robinhood-trading still not attached; ETHA position unmanaged 3rd consecutive cycle"}
+{"ts": "2026-07-15T19:36:11Z", "event": "auth_failure", "note": "cycle 2026-07-15 15:35 ET: robinhood-trading still not attached; ETHA unmanaged 4th consecutive cycle; position carries overnight"}
