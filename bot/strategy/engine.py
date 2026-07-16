@@ -384,11 +384,6 @@ def run(snapshot: dict) -> dict:
     exiting = {e['symbol'] for e in decisions['exits']}
     open_count = len([s for s in held if s not in exiting])
     slots = max(0, max_pos - open_count)
-    base_frac = half_kelly_fraction(closed_trades,
-                                    fallback=risk['max_position_pct_of_equity'] / 100.0,
-                                    cap=risk['max_position_pct_of_equity'] / 100.0)
-    a_scale = adaptive_scale(closed_trades)
-    dd_scale = drawdown_scale(equity, peak_equity)
     cash_left = buying_power - cfg_all['cash_reserve_usd']
 
     candidates = [(sym, s) for sym, s in signals.items()
@@ -410,9 +405,11 @@ def run(snapshot: dict) -> dict:
         if ev <= 0:
             decisions['diagnostics']['symbols'][symbol]['entry_blocked'] = f"EV {ev:.4f} <= 0"
             continue
-        mult = a_scale * dd_scale * volatility_multiplier(s['df']) * r_mult
-        size = equity * base_frac * mult
-        size = min(size, equity * risk['max_position_pct_of_equity'] / 100.0, cash_left)
+        # Owner directive 2026-07-16: flat sizing at max_position_pct of equity.
+        # The Kelly/adaptive/volatility/regime shrink multipliers are bypassed
+        # for sizing (still computed in diagnostics); drawdown protection now
+        # acts only through the max_drawdown entry block and daily stop.
+        size = min(equity * risk['max_position_pct_of_equity'] / 100.0, cash_left)
         size = float(np.floor(size * 100) / 100)
         if size < cfg_all['min_order_usd']:
             decisions['diagnostics']['symbols'][symbol]['entry_blocked'] = f"size ${size:.2f} < min"
