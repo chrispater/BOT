@@ -18,3 +18,4 @@
 {"ts": "2026-07-15T18:35:42Z", "event": "auth_failure", "note": "cycle 2026-07-15 14:35 ET: robinhood-trading still not attached; ETHA position unmanaged 3rd consecutive cycle"}
 {"ts": "2026-07-15T19:36:11Z", "event": "auth_failure", "note": "cycle 2026-07-15 15:35 ET: robinhood-trading still not attached; ETHA unmanaged 4th consecutive cycle; position carries overnight"}
 {"ts": "2026-07-16T12:13:50Z", "event": "position_check", "symbol": "ETHA", "quantity": "0.514406", "avg_cost": 14.58, "premarket_price": 14.18, "pnl_pct": -2.74, "note": "auth restored pre-market Thu; fill confirmed 0.514406 sh @ 14.58; Wed close 14.52; above -5% stop, no action; market opens 09:30 ET"}
+{"ts": "2026-07-16T13:35:17Z", "event": "auth_failure", "note": "cycle 2026-07-16 09:34 ET: connector detached again since 08:15 pre-market check; ETHA unmanaged; daily rollover deferred"}
