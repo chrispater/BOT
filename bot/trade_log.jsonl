@@ -26,3 +26,4 @@
 {"ts": "2026-07-17T13:36:07Z", "event": "sell", "symbol": "ETHA", "quantity": "0.514406", "price_ref": 13.6601, "reason": "stop_loss (gap past -5% during auth outage)", "ref_id": "e4a91c7d-8b2f-4d3e-a6c5-9f1b0e8d7a52", "order_id": "6a5a2f62-a30d-4da3-9292-43d762f693b4", "order_state": "filled", "pnl_pct": -6.31}
 {"ts": "2026-07-17T13:36:07Z", "event": "skip", "symbol": "QQQ", "reason": "entry blocked: Robinhood requires investor profile completion before second opening trade", "dollar_amount": "12.38"}
 {"ts": "2026-07-17T13:36:07Z", "event": "cycle_summary", "equity": 49.53, "buying_power": 49.53, "open_positions": 0, "regime": "sideways", "actions": 2, "note": "ETHA stop-loss filled -6.31%; QQQ $12.38 entry blocked pending investor profile"}
+{"ts": "2026-07-17T14:34:57Z", "event": "auth_failure", "note": "cycle 2026-07-17 10:34 ET: connector detached again after 09:35 cycle; flat book, no exposure at risk"}
