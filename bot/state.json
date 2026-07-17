@@ -1,18 +1,8 @@
 {
-  "date_et": "2026-07-15",
-  "start_of_day_equity": 50.0,
+  "date_et": "2026-07-17",
+  "start_of_day_equity": 49.53,
   "peak_equity": 50.0,
   "halted_today": false,
-  "positions": {
-    "ETHA": {
-      "entry_date_et": "2026-07-15",
-      "entry_reason": "ml_ensemble",
-      "entry_confidence": 0.653,
-      "high_water_mark": 14.5742,
-      "be_armed": false,
-      "cycles_held": 0,
-      "reversal_streak": 0
-    }
-  },
-  "last_run_utc": "2026-07-16T17:36:18Z"
+  "positions": {},
+  "last_run_utc": "2026-07-17T13:36:07Z"
 }
