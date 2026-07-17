@@ -27,3 +27,4 @@
 {"ts": "2026-07-17T13:36:07Z", "event": "skip", "symbol": "QQQ", "reason": "entry blocked: Robinhood requires investor profile completion before second opening trade", "dollar_amount": "12.38"}
 {"ts": "2026-07-17T13:36:07Z", "event": "cycle_summary", "equity": 49.53, "buying_power": 49.53, "open_positions": 0, "regime": "sideways", "actions": 2, "note": "ETHA stop-loss filled -6.31%; QQQ $12.38 entry blocked pending investor profile"}
 {"ts": "2026-07-17T14:34:57Z", "event": "auth_failure", "note": "cycle 2026-07-17 10:34 ET: connector detached again after 09:35 cycle; flat book, no exposure at risk"}
+{"ts": "2026-07-17T19:32:02Z", "event": "auth_failure", "note": "consolidated: cycles 2026-07-17 11:33-15:31 ET queued during session stall; connector unattached at 15:31 catch-up; flat book, no exposure"}
