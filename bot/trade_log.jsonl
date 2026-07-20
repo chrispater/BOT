@@ -35,3 +35,4 @@
 {"ts": "2026-07-20T19:29:31Z", "event": "skip", "symbol": "ETHA", "dollar_amount": "12.38", "reason": "entry blocked: investor profile still incomplete (place returns 400 despite clean review)", "confidence": 0.975}
 {"ts": "2026-07-20T19:29:31Z", "event": "skip", "symbol": "TSLA", "dollar_amount": "12.38", "reason": "entry blocked: investor profile still incomplete (place returns 400 despite clean review)", "confidence": 0.684}
 {"ts": "2026-07-20T19:29:31Z", "event": "cycle_summary", "equity": 49.53, "buying_power": 49.53, "open_positions": 0, "regime": "sideways", "actions": 0, "note": "auth restored via reconnect; 2 entries (ETHA 97.5%, TSLA 68.4%) both blocked pending investor profile"}
+{"ts": "2026-07-20T19:35:00Z", "event": "skip", "symbol": "ETHA", "dollar_amount": "12.38", "reason": "entry retry blocked: investor profile still incomplete", "confidence": 0.975}
