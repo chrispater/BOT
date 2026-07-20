@@ -29,3 +29,4 @@
 {"ts": "2026-07-17T14:34:57Z", "event": "auth_failure", "note": "cycle 2026-07-17 10:34 ET: connector detached again after 09:35 cycle; flat book, no exposure at risk"}
 {"ts": "2026-07-17T19:32:02Z", "event": "auth_failure", "note": "consolidated: cycles 2026-07-17 11:33-15:31 ET queued during session stall; connector unattached at 15:31 catch-up; flat book, no exposure"}
 {"ts": "2026-07-17T19:34:57Z", "event": "auth_failure", "note": "cycle 2026-07-17 15:34 ET: connector unattached; flat book; last cycle of week 1"}
+{"ts": "2026-07-20T13:35:37Z", "event": "auth_failure", "note": "cycle 2026-07-20 09:35 ET: connector unattached at Monday open; flat book"}
