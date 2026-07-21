@@ -40,3 +40,4 @@
 {"ts": "2026-07-20T19:49:38Z", "event": "buy", "symbol": "TSLA", "dollar_amount": "12.38", "price_ref": 371.73, "reason": "ml_ensemble conf=0.684 ev=0.051 regime=sideways", "ref_id": "d1e5b82f-3c69-4a7d-b2e4-8f0c1a6d9e35", "order_id": "6a5e7bc3-655e-4e5f-8332-2be1745ee4fe", "order_state": "unconfirmed"}
 {"ts": "2026-07-20T19:49:38Z", "event": "cycle_summary", "equity": 49.53, "buying_power": 24.77, "open_positions": 2, "regime": "sideways", "actions": 2, "note": "investor profile CLEARED; both entries filled: ETHA $12.38 + TSLA $12.38 at full 25% size"}
 {"ts": "2026-07-21T13:35:34Z", "event": "auth_failure", "note": "cycle 2026-07-21 09:35 ET: connector unattached at Tue open; ETHA+TSLA positions UNMANAGED; daily rollover deferred"}
+{"ts": "2026-07-21T14:35:58Z", "event": "auth_failure", "note": "cycle 2026-07-21 10:35 ET: connector unattached; ETHA+TSLA unmanaged 2nd consecutive cycle"}
