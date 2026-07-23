@@ -52,3 +52,4 @@
 {"ts": "2026-07-22T17:35:29Z", "event": "auth_failure", "note": "cycle 2026-07-22 13:35 ET: connector not attached; ETHA+TSLA unmanaged"}
 {"ts": "2026-07-22T18:35:23Z", "event": "auth_failure", "note": "cycle 2026-07-22 14:35 ET: connector not attached; ETHA+TSLA unmanaged"}
 {"ts": "2026-07-22T19:35:15Z", "event": "auth_failure", "note": "cycle 2026-07-22 15:35 ET: connector not attached; ETHA+TSLA carry overnight; last cycle of day"}
+{"ts": "2026-07-23T13:35:45Z", "event": "auth_failure", "note": "cycle 2026-07-23 09:35 ET: connector not attached at Thu open; ETHA+TSLA unmanaged; daily rollover deferred"}
