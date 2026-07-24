@@ -62,3 +62,6 @@
 {"ts": "2026-07-24T13:35:20Z", "event": "auth_failure", "note": "cycle 2026-07-24 09:34 ET: connector not attached at Fri open; ETHA+TSLA unmanaged; daily rollover deferred"}
 {"ts": "2026-07-24T14:35:40Z", "event": "auth_failure", "note": "cycle 2026-07-24 10:35 ET: connector not attached; ETHA+TSLA unmanaged"}
 {"ts": "2026-07-24T15:35:18Z", "event": "auth_failure", "note": "cycle 2026-07-24 11:34 ET: connector not attached; ETHA+TSLA unmanaged"}
+{"ts": "2026-07-24T16:24:22Z", "event": "sell", "symbol": "TSLA", "quantity": "0.033300", "price_ref": 310.9, "reason": "stop_loss (gapped to -16.4% during multi-day auth outage; stop could not fire until now)", "ref_id": "f3a72c91-6d84-4e2b-b17c-9e0a5d3f8c26", "order_id": "6a6391a9-17ae-4f9f-a168-b2566942649e", "order_state": "unconfirmed", "pnl_pct": -16.37}
+{"ts": "2026-07-24T16:24:22Z", "event": "hold", "symbol": "ETHA", "price_ref": 14.045, "pnl_pct": -1.92, "note": "within limits, no action"}
+{"ts": "2026-07-24T16:24:22Z", "event": "cycle_summary", "equity": null, "open_positions": 1, "actions": 1, "note": "auth returned unattended for first time; SOLD TSLA stop_loss -16.4%; ETHA held -1.9%"}
