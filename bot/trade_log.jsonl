@@ -74,3 +74,4 @@
 {"ts": "2026-07-27T15:35:54Z", "event": "auth_failure", "note": "cycle 2026-07-27 11:35 ET: connector not attached; ETHA unmanaged"}
 {"ts": "2026-07-27T16:35:42Z", "event": "auth_failure", "note": "cycle 2026-07-27 12:35 ET: connector not attached; ETHA unmanaged"}
 {"ts": "2026-07-27T17:30:49Z", "event": "auth_failure", "note": "cycle 2026-07-27 13:30 ET: connector not attached; ETHA unmanaged"}
+{"ts_utc":"2026-07-27T17:35:07Z","event":"auth_failure","detail":"robinhood-trading MCP unauthorized at cycle start (container recycle detached OAuth); no snapshot/trade possible","market":"open","gates":"passed"}
