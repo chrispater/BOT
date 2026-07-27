@@ -78,3 +78,4 @@
 {"ts": "2026-07-27T17:48:55Z", "event": "buy", "symbol": "QQQ", "dollar_amount": "11.94", "price_ref": 678.62, "reason": "ml_ensemble", "ref_id": "a3f9c1e2-7b4d-4e6a-9c2f-8d1e5a6b3c74", "order_state": "unconfirmed", "order_id": "6a6799f9-ec80-4422-b8a1-b54ec4d9a2a7"}
 {"ts": "2026-07-27T17:48:55Z", "event": "cycle_summary", "equity": 47.78, "buying_power": 35.12, "open_positions": 2, "regime": "sideways", "actions": 1}
 {"ts_utc":"2026-07-27T18:35:17Z","event":"auth_failure","detail":"robinhood MCP server disconnected/reconnecting at cycle start; tools not loadable; no snapshot/trade possible","market":"open","gates":"passed"}
+{"ts_utc":"2026-07-27T19:35:19Z","event":"auth_failure","detail":"robinhood MCP server disconnected 2nd consecutive cycle; tools not loadable; no snapshot/trade; last trading cycle of the day (15:34 ET)","market":"open","gates":"passed"}
