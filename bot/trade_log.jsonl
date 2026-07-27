@@ -75,3 +75,5 @@
 {"ts": "2026-07-27T16:35:42Z", "event": "auth_failure", "note": "cycle 2026-07-27 12:35 ET: connector not attached; ETHA unmanaged"}
 {"ts": "2026-07-27T17:30:49Z", "event": "auth_failure", "note": "cycle 2026-07-27 13:30 ET: connector not attached; ETHA unmanaged"}
 {"ts_utc":"2026-07-27T17:35:07Z","event":"auth_failure","detail":"robinhood-trading MCP unauthorized at cycle start (container recycle detached OAuth); no snapshot/trade possible","market":"open","gates":"passed"}
+{"ts": "2026-07-27T17:48:55Z", "event": "buy", "symbol": "QQQ", "dollar_amount": "11.94", "price_ref": 678.62, "reason": "ml_ensemble", "ref_id": "a3f9c1e2-7b4d-4e6a-9c2f-8d1e5a6b3c74", "order_state": "unconfirmed", "order_id": "6a6799f9-ec80-4422-b8a1-b54ec4d9a2a7"}
+{"ts": "2026-07-27T17:48:55Z", "event": "cycle_summary", "equity": 47.78, "buying_power": 35.12, "open_positions": 2, "regime": "sideways", "actions": 1}
