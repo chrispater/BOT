@@ -81,3 +81,4 @@
 {"ts_utc":"2026-07-27T19:35:19Z","event":"auth_failure","detail":"robinhood MCP server disconnected 2nd consecutive cycle; tools not loadable; no snapshot/trade; last trading cycle of the day (15:34 ET)","market":"open","gates":"passed"}
 {"ts_utc":"2026-07-27T19:38:57Z","event":"auth_failure","detail":"robinhood MCP server disconnected 3rd consecutive cycle; tools not loadable; no snapshot/trade","market":"open","gates":"passed"}
 {"ts_utc":"2026-07-28T13:35:28Z","event":"auth_failure","detail":"robinhood connector enabledInChat=false after overnight recycle (account connected=true); in-chat toggle reset; no snapshot/trade; owner must re-enable connector in chat","market":"open","gates":"passed"}
+{"ts_utc":"2026-07-28T14:35:48Z","event":"auth_failure","detail":"robinhood connector still enabledInChat=false; awaiting owner in-chat toggle; no trade","market":"open","gates":"passed"}
