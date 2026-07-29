@@ -91,3 +91,4 @@
 {"ts_utc":"2026-07-29T14:19:16Z","event":"auth_failure","detail":"robinhood connector still enabledInChat=false; awaiting owner in-chat toggle; no trade","market":"open","gates":"passed"}
 {"ts_utc":"2026-07-29T14:19:43Z","event":"auth_failure","detail":"robinhood connector still enabledInChat=false; awaiting owner in-chat toggle; no trade","market":"open","gates":"passed"}
 {"ts_utc":"2026-07-29T14:20:30Z","event":"auth_failure","detail":"robinhood connector still enabledInChat=false; awaiting owner in-chat toggle; no trade","market":"open","gates":"passed"}
+{"ts_utc":"2026-07-29T14:24:33Z","event":"auth_failure","detail":"owner reported toggle ON but connector still enabledInChat=false at cycle time; likely container recycled between toggle and scheduled fire, resetting it; no trade","market":"open","gates":"passed"}
