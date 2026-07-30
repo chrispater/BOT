@@ -105,3 +105,4 @@
 {"ts_utc":"2026-07-30T17:35:09Z","event":"auth_failure","detail":"robinhood connector still enabledInChat=false; awaiting owner in-chat toggle; no trade","market":"open","gates":"passed"}
 {"ts_utc":"2026-07-30T17:43:43Z","event":"auth_failure","detail":"robinhood connector still enabledInChat=false; awaiting owner in-chat toggle; no trade","market":"open","gates":"passed"}
 {"ts_utc":"2026-07-30T17:46:17Z","event":"auth_failure","detail":"robinhood connector still enabledInChat=false; awaiting owner in-chat toggle; no trade","market":"open","gates":"passed"}
+{"ts_utc": "2026-07-30T18:05:02Z", "event": "cycle_summary", "equity": 47.713345075, "buying_power": 23.18, "open_positions": ["ETHA", "QQQ"], "regime": "sideways", "actions": 0}

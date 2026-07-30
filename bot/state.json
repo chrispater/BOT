@@ -1,6 +1,6 @@
 {
-  "date_et": "2026-07-27",
-  "start_of_day_equity": 47.78,
+  "date_et": "2026-07-30",
+  "start_of_day_equity": 47.713345075,
   "peak_equity": 50.0,
   "halted_today": false,
   "positions": {
@@ -10,18 +10,18 @@
       "entry_confidence": 0.975,
       "high_water_mark": 14.6227,
       "be_armed": false,
-      "cycles_held": 1,
+      "cycles_held": 2,
       "reversal_streak": 0
     },
     "QQQ": {
       "entry_date_et": "2026-07-27",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.905,
-      "high_water_mark": 678.48,
+      "high_water_mark": 682.2,
       "be_armed": false,
-      "cycles_held": 0,
+      "cycles_held": 1,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-07-30T17:46:17Z"
+  "last_run_utc": "2026-07-30T18:05:02Z"
 }
