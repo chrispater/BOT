@@ -27,7 +27,10 @@
     "history_days": 60,
     "bar_interval": "hour"
   },
-  "universe": ["IBIT", "ETHA", "COIN", "MSTR", "NVDA", "TSLA", "QQQ", "SPY"],
+  "universe": ["IBIT", "ETHA", "COIN", "MSTR", "NVDA", "TSLA", "QQQ", "SPY",
+               "ONEQ",
+               "XRP", "XRPC", "XRPZ", "TOXR", "GXRP",
+               "XRPR", "XRPI", "XXRP", "UXRP", "XRPT"],
   "min_order_usd": 5.0,
   "cash_reserve_usd": 1.0,
   "order_style": "market_dollar_amount_regular_hours"
