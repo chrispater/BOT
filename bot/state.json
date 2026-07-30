@@ -10,18 +10,18 @@
       "entry_confidence": 0.975,
       "high_water_mark": 14.6227,
       "be_armed": false,
-      "cycles_held": 2,
-      "reversal_streak": 0
+      "cycles_held": 3,
+      "reversal_streak": 1
     },
     "QQQ": {
       "entry_date_et": "2026-07-27",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.905,
-      "high_water_mark": 682.2,
+      "high_water_mark": 682.31,
       "be_armed": false,
-      "cycles_held": 1,
+      "cycles_held": 2,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-07-30T18:35:29Z"
+  "last_run_utc": "2026-07-30T19:43:35Z"
 }
