@@ -10,27 +10,27 @@
       "entry_confidence": 0.975,
       "high_water_mark": 14.6227,
       "be_armed": false,
-      "cycles_held": 5,
+      "cycles_held": 6,
       "reversal_streak": 0
     },
     "TSLA": {
       "entry_date_et": "2026-07-31",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.864,
-      "high_water_mark": 309.71,
+      "high_water_mark": 311.09,
       "be_armed": false,
-      "cycles_held": 1,
+      "cycles_held": 2,
       "reversal_streak": 0
     },
     "GXRP": {
       "entry_date_et": "2026-07-31",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.987,
-      "high_water_mark": 20.5531,
+      "high_water_mark": 20.6,
       "be_armed": false,
-      "cycles_held": 1,
+      "cycles_held": 2,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-07-31T17:37:10Z"
+  "last_run_utc": "2026-07-31T18:37:23Z"
 }
