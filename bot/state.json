@@ -10,25 +10,7 @@
       "entry_confidence": 0.975,
       "high_water_mark": 14.6227,
       "be_armed": false,
-      "cycles_held": 4,
-      "reversal_streak": 0
-    },
-    "QQQ": {
-      "entry_date_et": "2026-07-27",
-      "entry_reason": "ml_ensemble",
-      "entry_confidence": 0.905,
-      "high_water_mark": 687.07,
-      "be_armed": false,
-      "cycles_held": 3,
-      "reversal_streak": 1
-    },
-    "GXRP": {
-      "entry_date_et": "2026-07-31",
-      "entry_reason": "ml_ensemble",
-      "entry_confidence": 0.987,
-      "high_water_mark": 20.5531,
-      "be_armed": false,
-      "cycles_held": 0,
+      "cycles_held": 5,
       "reversal_streak": 0
     },
     "TSLA": {
@@ -37,9 +19,18 @@
       "entry_confidence": 0.864,
       "high_water_mark": 309.71,
       "be_armed": false,
-      "cycles_held": 0,
+      "cycles_held": 1,
+      "reversal_streak": 0
+    },
+    "GXRP": {
+      "entry_date_et": "2026-07-31",
+      "entry_reason": "ml_ensemble",
+      "entry_confidence": 0.987,
+      "high_water_mark": 20.5531,
+      "be_armed": false,
+      "cycles_held": 1,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-07-31T17:20:14Z"
+  "last_run_utc": "2026-07-31T17:37:10Z"
 }
