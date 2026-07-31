@@ -1,6 +1,6 @@
 {
-  "date_et": "2026-07-30",
-  "start_of_day_equity": 47.713345075,
+  "date_et": "2026-07-31",
+  "start_of_day_equity": 47.6947066,
   "peak_equity": 50.0,
   "halted_today": false,
   "positions": {
@@ -23,5 +23,5 @@
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-07-30T19:43:35Z"
+  "last_run_utc": "2026-07-31T13:37:22Z"
 }
