@@ -87,7 +87,14 @@ class MLStream:
             min_samples_leaf=20, l2_regularization=0.1,
             class_weight='balanced', random_state=self.seed,
         )
-        self.model.fit(X, y)
+        # Thinly traded listings can leave a feature column constant, which
+        # sklearn's binner rejects — degrade to untrained instead of crashing.
+        try:
+            self.model.fit(X, y)
+        except Exception:
+            self.model = None
+            self.trained = False
+            return False
         self.trained = True
         return True
 

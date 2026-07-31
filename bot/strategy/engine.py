@@ -332,31 +332,38 @@ def run(snapshot: dict) -> dict:
         if df is None or len(df) < 60:
             decisions['diagnostics']['symbols'][symbol] = {'skipped': 'insufficient bars'}
             continue
-        df_ind = calculate_indicators(df)
-        ml = MLStream(cfg['forward_periods'], cfg['label_threshold'],
-                      risk['per_position_stop_loss_pct'] / 100.0)
-        ml.train(df_ind)
-        ml_signal, ml_conf = ml.predict(df_ind)
-        se_signal, se_conf, se_reasons = indicator_score(df_ind)
-        signal, confidence = ensemble(ml_signal, ml_conf, se_signal, se_conf)
+        # One symbol's bad data must never kill the whole cycle — degrade to
+        # no-signal (held positions still get exit management via avg_cost).
+        try:
+            df_ind = calculate_indicators(df)
+            ml = MLStream(cfg['forward_periods'], cfg['label_threshold'],
+                          risk['per_position_stop_loss_pct'] / 100.0)
+            ml.train(df_ind)
+            ml_signal, ml_conf = ml.predict(df_ind)
+            se_signal, se_conf, se_reasons = indicator_score(df_ind)
+            signal, confidence = ensemble(ml_signal, ml_conf, se_signal, se_conf)
 
-        setup_name = None
-        if symbol not in held and (signal == 0 or confidence < cfg['min_confidence']):
-            s_sig, s_conf, s_name = best_setup(df_ind, signal, confidence)
-            if s_sig != 0 and s_conf >= cfg['setup_min_confidence']:
-                signal, confidence, setup_name = s_sig, s_conf, s_name
+            setup_name = None
+            if symbol not in held and (signal == 0 or confidence < cfg['min_confidence']):
+                s_sig, s_conf, s_name = best_setup(df_ind, signal, confidence)
+                if s_sig != 0 and s_conf >= cfg['setup_min_confidence']:
+                    signal, confidence, setup_name = s_sig, s_conf, s_name
 
-        signals[symbol] = {'signal': signal, 'confidence': confidence,
-                           'setup': setup_name, 'df': df_ind,
-                           'price': float(df_ind['close'].iloc[-1]),
-                           'ml': (ml_signal, round(ml_conf, 3), ml.trained),
-                           'se': (se_signal, round(se_conf, 3))}
-        decisions['diagnostics']['symbols'][symbol] = {
-            'signal': signal, 'confidence': round(confidence, 3),
-            'ml_signal': ml_signal, 'ml_conf': round(ml_conf, 3),
-            'ml_trained': ml.trained, 'se_signal': se_signal,
-            'setup': setup_name, 'price': signals[symbol]['price'],
-            'reasons': se_reasons[:4]}
+            signals[symbol] = {'signal': signal, 'confidence': confidence,
+                               'setup': setup_name, 'df': df_ind,
+                               'price': float(df_ind['close'].iloc[-1]),
+                               'ml': (ml_signal, round(ml_conf, 3), ml.trained),
+                               'se': (se_signal, round(se_conf, 3))}
+            decisions['diagnostics']['symbols'][symbol] = {
+                'signal': signal, 'confidence': round(confidence, 3),
+                'ml_signal': ml_signal, 'ml_conf': round(ml_conf, 3),
+                'ml_trained': ml.trained, 'se_signal': se_signal,
+                'setup': setup_name, 'price': signals[symbol]['price'],
+                'reasons': se_reasons[:4]}
+        except Exception as e:
+            signals.pop(symbol, None)
+            decisions['diagnostics']['symbols'][symbol] = {
+                'skipped': f'error: {type(e).__name__}: {e}'}
 
     # ── Exits ────────────────────────────────────────────────────────────────
     for symbol, pos in held.items():
