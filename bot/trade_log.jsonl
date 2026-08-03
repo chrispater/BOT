@@ -128,3 +128,4 @@
 {"ts_utc": "2026-08-03T16:37:22Z", "event": "cycle_summary", "equity": 52.365, "buying_power": 17.4, "open_positions": ["ETHA", "GXRP", "TSLA"], "regime": "sideways", "actions": 1}
 {"ts_utc": "2026-08-03T17:38:14Z", "event": "note", "detail": "SPCX anomaly resolved: get_equity_orders shows a user-placed sell (placed_agent=user), 3 sh @ $110.01, filled 2026-08-03T17:20:27Z. Owner sold it himself. Cash now $344.93, of which $340.62 unsettled (buying_power $4.31). Full account equity ($382.27) now used for engine input since no untracked assets remain.", "market": "open", "gates": "passed"}
 {"ts_utc": "2026-08-03T17:38:14Z", "event": "cycle_summary", "equity": 382.271513955, "buying_power": 4.31, "open_positions": ["ETHA", "TSLA", "GXRP"], "regime": "sideways", "actions": 0}
+{"ts_utc": "2026-08-03T18:37:48Z", "event": "cycle_summary", "equity": 382.2315024329, "buying_power": 4.31, "open_positions": ["ETHA", "TSLA", "GXRP"], "regime": "sideways", "actions": 0}
