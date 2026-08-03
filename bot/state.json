@@ -1,6 +1,6 @@
 {
-  "date_et": "2026-07-31",
-  "start_of_day_equity": 47.6947066,
+  "date_et": "2026-08-03",
+  "start_of_day_equity": 47.55007392,
   "peak_equity": 50.0,
   "halted_today": false,
   "positions": {
@@ -10,27 +10,27 @@
       "entry_confidence": 0.975,
       "high_water_mark": 14.6227,
       "be_armed": false,
-      "cycles_held": 6,
+      "cycles_held": 7,
       "reversal_streak": 0
     },
     "TSLA": {
       "entry_date_et": "2026-07-31",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.864,
-      "high_water_mark": 311.09,
+      "high_water_mark": 311.11,
       "be_armed": false,
-      "cycles_held": 2,
-      "reversal_streak": 0
+      "cycles_held": 3,
+      "reversal_streak": 1
     },
     "GXRP": {
       "entry_date_et": "2026-07-31",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.987,
-      "high_water_mark": 20.6,
+      "high_water_mark": 20.61,
       "be_armed": false,
-      "cycles_held": 2,
+      "cycles_held": 3,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-07-31T18:37:23Z"
+  "last_run_utc": "2026-08-03T13:40:46Z"
 }
