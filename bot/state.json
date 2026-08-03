@@ -1,7 +1,7 @@
 {
   "date_et": "2026-08-03",
   "start_of_day_equity": 47.55007392,
-  "peak_equity": 52.365,
+  "peak_equity": 382.271513955,
   "halted_today": false,
   "positions": {
     "ETHA": {
@@ -10,16 +10,7 @@
       "entry_confidence": 0.975,
       "high_water_mark": 14.6227,
       "be_armed": false,
-      "cycles_held": 10,
-      "reversal_streak": 0
-    },
-    "GXRP": {
-      "entry_date_et": "2026-07-31",
-      "entry_reason": "ml_ensemble",
-      "entry_confidence": 0.987,
-      "high_water_mark": 20.955,
-      "be_armed": false,
-      "cycles_held": 6,
+      "cycles_held": 11,
       "reversal_streak": 0
     },
     "TSLA": {
@@ -28,9 +19,18 @@
       "entry_confidence": 0.88,
       "high_water_mark": 323.38,
       "be_armed": false,
-      "cycles_held": 0,
+      "cycles_held": 1,
+      "reversal_streak": 0
+    },
+    "GXRP": {
+      "entry_date_et": "2026-07-31",
+      "entry_reason": "ml_ensemble",
+      "entry_confidence": 0.987,
+      "high_water_mark": 20.955,
+      "be_armed": false,
+      "cycles_held": 7,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-08-03T16:37:22Z"
+  "last_run_utc": "2026-08-03T17:38:14Z"
 }
