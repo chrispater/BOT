@@ -1,45 +1,45 @@
 {
   "date_et": "2026-08-04",
   "start_of_day_equity": 382.4495125669,
-  "peak_equity": 383.31,
+  "peak_equity": 384.44270936,
   "halted_today": false,
   "positions": {
     "QQQ": {
       "entry_date_et": "2026-08-04",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.658,
-      "high_water_mark": 720.56,
+      "high_water_mark": 722.73,
       "be_armed": false,
-      "cycles_held": 2,
-      "reversal_streak": 0
+      "cycles_held": 3,
+      "reversal_streak": 1
     },
     "NVDA": {
       "entry_date_et": "2026-08-04",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.673,
-      "high_water_mark": 210.775,
+      "high_water_mark": 211.48,
       "be_armed": false,
-      "cycles_held": 4,
-      "reversal_streak": 1
+      "cycles_held": 5,
+      "reversal_streak": 2
     },
     "SPY": {
       "entry_date_et": "2026-08-04",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.693,
-      "high_water_mark": 770.265,
+      "high_water_mark": 771.57,
       "be_armed": false,
-      "cycles_held": 2,
+      "cycles_held": 3,
       "reversal_streak": 0
     },
     "WMT": {
       "entry_date_et": "2026-08-04",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.989,
-      "high_water_mark": 110.13,
+      "high_water_mark": 110.59,
       "be_armed": false,
-      "cycles_held": 0,
+      "cycles_held": 1,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-08-04T17:41:31Z"
+  "last_run_utc": "2026-08-04T18:37:52Z"
 }
