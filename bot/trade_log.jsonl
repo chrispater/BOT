@@ -130,3 +130,7 @@
 {"ts_utc": "2026-08-03T17:38:14Z", "event": "cycle_summary", "equity": 382.271513955, "buying_power": 4.31, "open_positions": ["ETHA", "TSLA", "GXRP"], "regime": "sideways", "actions": 0}
 {"ts_utc": "2026-08-03T18:37:48Z", "event": "cycle_summary", "equity": 382.2315024329, "buying_power": 4.31, "open_positions": ["ETHA", "TSLA", "GXRP"], "regime": "sideways", "actions": 0}
 {"ts_utc": "2026-08-03T19:36:41Z", "event": "cycle_summary", "equity": 382.338172135, "buying_power": 4.31, "open_positions": ["ETHA", "TSLA", "GXRP"], "regime": "sideways", "actions": 0, "note": "last cycle of trading day 2026-08-03"}
+{"ts_utc": "2026-08-04T13:38:27Z", "event": "sell", "symbol": "ETHA", "quantity": "0.864531", "price_ref": 14.125, "reason": "time_stop", "pnl_pct": -1.36, "ref_id": "43fee94f-ca24-44aa-b0a7-f2cf59cbca23", "order_state": "unconfirmed"}
+{"ts_utc": "2026-08-04T13:38:27Z", "event": "sell", "symbol": "TSLA", "quantity": "0.040664", "price_ref": 325.45, "reason": "signal_reversal", "pnl_pct": 1.1, "ref_id": "ae2cd450-8fcb-47b6-97f0-f0f8b190744d", "order_state": "unconfirmed"}
+{"ts_utc": "2026-08-04T13:38:27Z", "event": "buy", "symbol": "NVDA", "dollar_amount": "95.61", "price_ref": 211.44, "reason": "ml_ensemble", "confidence": 0.673, "ref_id": "2b2c23e8-a149-4d7f-b942-acc3fd852771", "order_state": "unconfirmed"}
+{"ts_utc": "2026-08-04T13:38:27Z", "event": "cycle_summary", "equity": 382.4495125669, "buying_power": 344.93, "open_positions": ["GXRP", "NVDA"], "regime": "bull", "actions": 3}

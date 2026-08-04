@@ -1,36 +1,27 @@
 {
-  "date_et": "2026-08-03",
-  "start_of_day_equity": 47.55007392,
-  "peak_equity": 382.338172135,
+  "date_et": "2026-08-04",
+  "start_of_day_equity": 382.4495125669,
+  "peak_equity": 382.4495125669,
   "halted_today": false,
   "positions": {
-    "ETHA": {
-      "entry_date_et": "2026-07-20",
-      "entry_reason": "ml_ensemble",
-      "entry_confidence": 0.975,
-      "high_water_mark": 14.6227,
-      "be_armed": false,
-      "cycles_held": 13,
-      "reversal_streak": 0
-    },
-    "TSLA": {
-      "entry_date_et": "2026-08-03",
-      "entry_reason": "breakout_long",
-      "entry_confidence": 0.88,
-      "high_water_mark": 323.54,
-      "be_armed": false,
-      "cycles_held": 3,
-      "reversal_streak": 1
-    },
     "GXRP": {
       "entry_date_et": "2026-07-31",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.987,
       "high_water_mark": 20.97,
       "be_armed": false,
-      "cycles_held": 9,
+      "cycles_held": 10,
+      "reversal_streak": 0
+    },
+    "NVDA": {
+      "entry_date_et": "2026-08-04",
+      "entry_reason": "ml_ensemble",
+      "entry_confidence": 0.673,
+      "high_water_mark": 206.66,
+      "be_armed": false,
+      "cycles_held": 0,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-08-03T19:36:41Z"
+  "last_run_utc": "2026-08-04T13:38:27Z"
 }
