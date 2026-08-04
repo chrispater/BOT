@@ -4,7 +4,7 @@
   "risk": {
     "max_position_pct_of_equity": 25,
     "daily_loss_stop_pct": 10,
-    "max_open_positions": 8,
+    "max_open_positions": 15,
     "per_position_stop_loss_pct": 5,
     "per_position_take_profit_pct": 10
   },
