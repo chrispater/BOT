@@ -28,9 +28,14 @@
     "bar_interval": "hour"
   },
   "universe": ["IBIT", "ETHA", "COIN", "MSTR", "NVDA", "TSLA", "QQQ", "SPY",
-               "ONEQ",
+               "ONEQ", "DIA",
                "XRP", "XRPC", "XRPZ", "TOXR", "GXRP",
-               "XRPR", "XRPI", "XXRP", "UXRP", "XRPT"],
+               "XRPR", "XRPI", "XXRP", "UXRP", "XRPT",
+               "MSFT", "GOOGL", "META", "AMD",
+               "USO", "XLE",
+               "UUP",
+               "TLT",
+               "JPM", "V", "WMT", "AAPL", "AMZN"],
   "min_order_usd": 5.0,
   "cash_reserve_usd": 1.0,
   "order_style": "market_dollar_amount_regular_hours"
