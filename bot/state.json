@@ -10,7 +10,7 @@
       "entry_confidence": 0.987,
       "high_water_mark": 20.97,
       "be_armed": false,
-      "cycles_held": 10,
+      "cycles_held": 11,
       "reversal_streak": 0
     },
     "NVDA": {
@@ -19,9 +19,9 @@
       "entry_confidence": 0.673,
       "high_water_mark": 206.66,
       "be_armed": false,
-      "cycles_held": 0,
+      "cycles_held": 1,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-08-04T13:38:27Z"
+  "last_run_utc": "2026-08-04T14:37:21Z"
 }

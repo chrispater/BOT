@@ -134,3 +134,4 @@
 {"ts_utc": "2026-08-04T13:38:27Z", "event": "sell", "symbol": "TSLA", "quantity": "0.040664", "price_ref": 325.45, "reason": "signal_reversal", "pnl_pct": 1.1, "ref_id": "ae2cd450-8fcb-47b6-97f0-f0f8b190744d", "order_state": "unconfirmed"}
 {"ts_utc": "2026-08-04T13:38:27Z", "event": "buy", "symbol": "NVDA", "dollar_amount": "95.61", "price_ref": 211.44, "reason": "ml_ensemble", "confidence": 0.673, "ref_id": "2b2c23e8-a149-4d7f-b942-acc3fd852771", "order_state": "unconfirmed"}
 {"ts_utc": "2026-08-04T13:38:27Z", "event": "cycle_summary", "equity": 382.4495125669, "buying_power": 344.93, "open_positions": ["GXRP", "NVDA"], "regime": "bull", "actions": 3}
+{"ts_utc": "2026-08-04T14:37:21Z", "event": "cycle_summary", "equity": 381.8864533533, "buying_power": 249.32, "open_positions": ["GXRP", "NVDA"], "regime": "bull", "actions": 0}
