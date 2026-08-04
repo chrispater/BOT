@@ -10,18 +10,36 @@
       "entry_confidence": 0.987,
       "high_water_mark": 20.97,
       "be_armed": false,
-      "cycles_held": 11,
+      "cycles_held": 12,
       "reversal_streak": 0
     },
     "NVDA": {
       "entry_date_et": "2026-08-04",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.673,
-      "high_water_mark": 206.66,
+      "high_water_mark": 209.57,
       "be_armed": false,
-      "cycles_held": 1,
+      "cycles_held": 2,
+      "reversal_streak": 0
+    },
+    "SPY": {
+      "entry_date_et": "2026-08-04",
+      "entry_reason": "ml_ensemble",
+      "entry_confidence": 0.693,
+      "high_water_mark": 766.3,
+      "be_armed": false,
+      "cycles_held": 0,
+      "reversal_streak": 0
+    },
+    "QQQ": {
+      "entry_date_et": "2026-08-04",
+      "entry_reason": "ml_ensemble",
+      "entry_confidence": 0.658,
+      "high_water_mark": 715.8008,
+      "be_armed": false,
+      "cycles_held": 0,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-08-04T14:37:21Z"
+  "last_run_utc": "2026-08-04T15:37:32Z"
 }
