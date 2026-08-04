@@ -139,3 +139,6 @@
 {"ts_utc": "2026-08-04T15:37:32Z", "event": "buy", "symbol": "QQQ", "dollar_amount": "95.38", "price_ref": 718.06, "reason": "ml_ensemble", "confidence": 0.658, "ref_id": "3fb9b174-4f57-4217-91bc-1955ba29bb27", "order_state": "unconfirmed"}
 {"ts_utc": "2026-08-04T15:37:32Z", "event": "cycle_summary", "equity": 381.53202883, "buying_power": 249.32, "open_positions": ["GXRP", "NVDA", "SPY", "QQQ"], "regime": "bull", "actions": 2}
 {"ts_utc": "2026-08-04T16:37:40Z", "event": "cycle_summary", "equity": 381.66, "buying_power": 59.2, "open_positions": ["GXRP", "NVDA", "SPY", "QQQ"], "regime": "bull", "actions": 0}
+{"ts_utc": "2026-08-04T17:41:31Z", "event": "sell", "symbol": "GXRP", "quantity": "0.574058", "price_ref": 20.865, "reason": "time_stop", "pnl_pct": 0.99, "ref_id": "fa0d5f63-9348-478c-bd3a-f2e4cd13d52b", "order_state": "unconfirmed"}
+{"ts_utc": "2026-08-04T17:41:31Z", "event": "buy", "symbol": "WMT", "dollar_amount": "57.56", "price_ref": 110.51, "reason": "ml_ensemble", "confidence": 0.989, "ref_id": "c9abcdf9-0961-4696-a612-0832434d3e41", "order_state": "unconfirmed"}
+{"ts_utc": "2026-08-04T17:41:31Z", "event": "cycle_summary", "equity": 383.31, "buying_power": 58.56, "open_positions": ["QQQ", "NVDA", "SPY", "WMT"], "regime": "bull", "actions": 2, "note": "first cycle scoring the expanded 33-symbol universe"}

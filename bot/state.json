@@ -1,16 +1,16 @@
 {
   "date_et": "2026-08-04",
   "start_of_day_equity": 382.4495125669,
-  "peak_equity": 382.4495125669,
+  "peak_equity": 383.31,
   "halted_today": false,
   "positions": {
-    "GXRP": {
-      "entry_date_et": "2026-07-31",
+    "QQQ": {
+      "entry_date_et": "2026-08-04",
       "entry_reason": "ml_ensemble",
-      "entry_confidence": 0.987,
-      "high_water_mark": 20.97,
+      "entry_confidence": 0.658,
+      "high_water_mark": 720.56,
       "be_armed": false,
-      "cycles_held": 13,
+      "cycles_held": 2,
       "reversal_streak": 0
     },
     "NVDA": {
@@ -19,27 +19,27 @@
       "entry_confidence": 0.673,
       "high_water_mark": 210.775,
       "be_armed": false,
-      "cycles_held": 3,
-      "reversal_streak": 0
+      "cycles_held": 4,
+      "reversal_streak": 1
     },
     "SPY": {
       "entry_date_et": "2026-08-04",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.693,
-      "high_water_mark": 768.44,
+      "high_water_mark": 770.265,
       "be_armed": false,
-      "cycles_held": 1,
+      "cycles_held": 2,
       "reversal_streak": 0
     },
-    "QQQ": {
+    "WMT": {
       "entry_date_et": "2026-08-04",
       "entry_reason": "ml_ensemble",
-      "entry_confidence": 0.658,
-      "high_water_mark": 718.78,
+      "entry_confidence": 0.989,
+      "high_water_mark": 110.13,
       "be_armed": false,
-      "cycles_held": 1,
+      "cycles_held": 0,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-08-04T16:37:40Z"
+  "last_run_utc": "2026-08-04T17:41:31Z"
 }
