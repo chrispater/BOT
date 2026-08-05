@@ -8,29 +8,29 @@
       "entry_date_et": "2026-08-04",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.693,
-      "high_water_mark": 772.07,
+      "high_water_mark": 774.58,
       "be_armed": false,
-      "cycles_held": 6,
+      "cycles_held": 7,
       "reversal_streak": 0
     },
     "WMT": {
       "entry_date_et": "2026-08-04",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.989,
-      "high_water_mark": 111.55,
+      "high_water_mark": 112.64,
       "be_armed": false,
-      "cycles_held": 4,
+      "cycles_held": 5,
       "reversal_streak": 0
     },
     "AAPL": {
       "entry_date_et": "2026-08-05",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 1.0,
-      "high_water_mark": 309.38,
+      "high_water_mark": 311.325,
       "be_armed": false,
-      "cycles_held": 0,
+      "cycles_held": 1,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-08-05T14:37:41Z"
+  "last_run_utc": "2026-08-05T15:37:49Z"
 }
