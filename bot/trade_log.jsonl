@@ -150,3 +150,4 @@
 {"ts_utc": "2026-08-05T14:37:41Z", "event": "buy", "symbol": "AAPL", "dollar_amount": "37.40", "price_ref": 307.23, "reason": "ml_ensemble", "confidence": 1.0, "ref_id": "b3f4fb72-7264-43a8-9202-2d625e8c88b4", "order_state": "unconfirmed"}
 {"ts_utc": "2026-08-05T14:37:41Z", "event": "cycle_summary", "equity": 389.22707381, "buying_power": 38.41, "open_positions": ["SPY", "WMT", "AAPL"], "regime": "bull", "actions": 1}
 {"ts_utc": "2026-08-05T15:37:49Z", "event": "cycle_summary", "equity": 389.22707381, "buying_power": 1.01, "open_positions": ["SPY", "WMT", "AAPL"], "regime": "bull", "actions": 0}
+{"ts_utc": "2026-08-05T16:38:19Z", "event": "cycle_summary", "equity": 389.22707381, "buying_power": 1.01, "open_positions": ["SPY", "WMT", "AAPL"], "regime": "bull", "actions": 0}
