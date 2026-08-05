@@ -147,3 +147,5 @@
 {"ts_utc": "2026-08-05T13:38:23Z", "event": "sell", "symbol": "QQQ", "quantity": "0.132828", "price_ref": 725.3, "reason": "signal_reversal", "pnl_pct": 1.01, "ref_id": "58e3f418-22ee-4085-ab3c-023451001149", "order_state": "unconfirmed"}
 {"ts_utc": "2026-08-05T13:38:23Z", "event": "sell", "symbol": "NVDA", "quantity": "0.452231", "price_ref": 219.91, "reason": "signal_reversal", "pnl_pct": 4.02, "ref_id": "51ffc084-0231-4dfa-b22b-4ce419b0deb3", "order_state": "unconfirmed"}
 {"ts_utc": "2026-08-05T13:38:23Z", "event": "cycle_summary", "equity": 384.44270936, "buying_power": 1.0, "open_positions": ["SPY", "WMT"], "regime": "bull", "actions": 2}
+{"ts_utc": "2026-08-05T14:37:41Z", "event": "buy", "symbol": "AAPL", "dollar_amount": "37.40", "price_ref": 307.23, "reason": "ml_ensemble", "confidence": 1.0, "ref_id": "b3f4fb72-7264-43a8-9202-2d625e8c88b4", "order_state": "unconfirmed"}
+{"ts_utc": "2026-08-05T14:37:41Z", "event": "cycle_summary", "equity": 389.22707381, "buying_power": 38.41, "open_positions": ["SPY", "WMT", "AAPL"], "regime": "bull", "actions": 1}
