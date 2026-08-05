@@ -10,8 +10,8 @@
       "entry_confidence": 0.693,
       "high_water_mark": 774.58,
       "be_armed": false,
-      "cycles_held": 9,
-      "reversal_streak": 0
+      "cycles_held": 10,
+      "reversal_streak": 1
     },
     "WMT": {
       "entry_date_et": "2026-08-04",
@@ -19,7 +19,7 @@
       "entry_confidence": 0.989,
       "high_water_mark": 112.64,
       "be_armed": false,
-      "cycles_held": 7,
+      "cycles_held": 8,
       "reversal_streak": 0
     },
     "AAPL": {
@@ -28,9 +28,9 @@
       "entry_confidence": 1.0,
       "high_water_mark": 311.325,
       "be_armed": false,
-      "cycles_held": 3,
+      "cycles_held": 4,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-08-05T17:37:21Z"
+  "last_run_utc": "2026-08-05T18:37:27Z"
 }
