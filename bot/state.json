@@ -10,7 +10,7 @@
       "entry_confidence": 1.0,
       "high_water_mark": 313.3436,
       "be_armed": false,
-      "cycles_held": 9,
+      "cycles_held": 10,
       "reversal_streak": 0
     },
     "GOOGL": {
@@ -19,7 +19,7 @@
       "entry_confidence": 0.935,
       "high_water_mark": 362.5,
       "be_armed": false,
-      "cycles_held": 3,
+      "cycles_held": 4,
       "reversal_streak": 0
     },
     "JPM": {
@@ -28,9 +28,9 @@
       "entry_confidence": 0.962,
       "high_water_mark": 357.145,
       "be_armed": false,
-      "cycles_held": 1,
+      "cycles_held": 2,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-08-06T16:37:36Z"
+  "last_run_utc": "2026-08-06T17:38:02Z"
 }
