@@ -159,3 +159,5 @@
 {"ts_utc": "2026-08-06T13:39:35Z", "event": "cycle_summary", "equity": 389.22707381, "buying_power": 96.79, "open_positions": ["WMT", "AAPL", "GOOGL"], "regime": "bull", "actions": 1}
 {"ts_utc": "2026-08-06T14:38:21Z", "event": "sell", "symbol": "WMT", "quantity": "0.520811", "price_ref": 112.35, "reason": "signal_reversal", "pnl_pct": 1.66, "ref_id": "cc38820a-11c2-49ac-a325-bec6077b3393", "order_state": "unconfirmed"}
 {"ts_utc": "2026-08-06T14:38:21Z", "event": "cycle_summary", "equity": 389.32, "buying_power": 1.0, "open_positions": ["AAPL", "GOOGL"], "regime": "bull", "actions": 1}
+{"ts_utc": "2026-08-06T15:40:27Z", "event": "buy", "symbol": "JPM", "dollar_amount": "58.99", "price_ref": 356.32, "reason": "ml_ensemble", "confidence": 0.962, "ref_id": "98b3dc56-9b42-4e75-b8cc-ca49dffeb7ad", "order_state": "unconfirmed"}
+{"ts_utc": "2026-08-06T15:40:27Z", "event": "cycle_summary", "equity": 389.72, "buying_power": 59.99, "open_positions": ["AAPL", "GOOGL", "JPM"], "regime": "bull", "actions": 1}

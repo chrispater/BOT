@@ -1,16 +1,16 @@
 {
   "date_et": "2026-08-06",
   "start_of_day_equity": 389.22707381,
-  "peak_equity": 389.32,
+  "peak_equity": 389.72,
   "halted_today": false,
   "positions": {
     "AAPL": {
       "entry_date_et": "2026-08-05",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 1.0,
-      "high_water_mark": 311.325,
+      "high_water_mark": 313.3436,
       "be_armed": false,
-      "cycles_held": 7,
+      "cycles_held": 8,
       "reversal_streak": 0
     },
     "GOOGL": {
@@ -19,9 +19,18 @@
       "entry_confidence": 0.935,
       "high_water_mark": 362.5,
       "be_armed": false,
-      "cycles_held": 1,
+      "cycles_held": 2,
+      "reversal_streak": 0
+    },
+    "JPM": {
+      "entry_date_et": "2026-08-06",
+      "entry_reason": "ml_ensemble",
+      "entry_confidence": 0.962,
+      "high_water_mark": 356.95,
+      "be_armed": false,
+      "cycles_held": 0,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-08-06T14:38:21Z"
+  "last_run_utc": "2026-08-06T15:40:27Z"
 }
