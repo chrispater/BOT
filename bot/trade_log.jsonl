@@ -161,3 +161,4 @@
 {"ts_utc": "2026-08-06T14:38:21Z", "event": "cycle_summary", "equity": 389.32, "buying_power": 1.0, "open_positions": ["AAPL", "GOOGL"], "regime": "bull", "actions": 1}
 {"ts_utc": "2026-08-06T15:40:27Z", "event": "buy", "symbol": "JPM", "dollar_amount": "58.99", "price_ref": 356.32, "reason": "ml_ensemble", "confidence": 0.962, "ref_id": "98b3dc56-9b42-4e75-b8cc-ca49dffeb7ad", "order_state": "unconfirmed"}
 {"ts_utc": "2026-08-06T15:40:27Z", "event": "cycle_summary", "equity": 389.72, "buying_power": 59.99, "open_positions": ["AAPL", "GOOGL", "JPM"], "regime": "bull", "actions": 1}
+{"ts_utc": "2026-08-06T16:37:36Z", "event": "cycle_summary", "equity": 389.72, "buying_power": 1.0, "open_positions": ["AAPL", "GOOGL", "JPM"], "regime": "bull", "actions": 0}
