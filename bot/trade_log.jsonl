@@ -170,3 +170,5 @@
 {"ts_utc": "2026-08-07T14:37:52Z", "event": "cycle_summary", "equity": 389.72, "buying_power": 1.0, "open_positions": ["GOOGL", "JPM"], "regime": "bull", "actions": 1}
 {"ts_utc": "2026-08-07T15:37:55Z", "event": "buy", "symbol": "XRPR", "dollar_amount": "37.54", "price_ref": 8.39, "reason": "ml_ensemble", "confidence": 0.99, "ref_id": "9956510d-2713-464a-bcdd-07a304f0b100", "order_state": "unconfirmed"}
 {"ts_utc": "2026-08-07T15:37:55Z", "event": "cycle_summary", "equity": 391.09, "buying_power": 38.55, "open_positions": ["GOOGL", "JPM", "XRPR"], "regime": "bull", "actions": 1}
+{"ts_utc": "2026-08-07T16:39:09Z", "event": "sell", "symbol": "GOOGL", "quantity": "0.264309", "price_ref": 355.4166, "reason": "signal_reversal", "pnl_pct": -1.93, "ref_id": "7c1e9f2a-3b4d-4e6f-9a1c-58d0f2b6e7a3", "order_id": "6a760a2d-ad82-49fc-86a7-85e21c9a6b2c", "order_state": "filled"}
+{"ts_utc": "2026-08-07T16:39:09Z", "event": "cycle_summary", "equity": 387.65, "buying_power": 158.94, "open_positions": ["JPM", "XRPR"], "regime": "bull", "actions": 1}

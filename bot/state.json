@@ -4,22 +4,13 @@
   "peak_equity": 391.09,
   "halted_today": false,
   "positions": {
-    "GOOGL": {
-      "entry_date_et": "2026-08-06",
-      "entry_reason": "ml_ensemble",
-      "entry_confidence": 0.935,
-      "high_water_mark": 362.5,
-      "be_armed": false,
-      "cycles_held": 9,
-      "reversal_streak": 1
-    },
     "JPM": {
       "entry_date_et": "2026-08-06",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.962,
       "high_water_mark": 357.145,
       "be_armed": false,
-      "cycles_held": 7,
+      "cycles_held": 8,
       "reversal_streak": 0
     },
     "XRPR": {
@@ -28,9 +19,9 @@
       "entry_confidence": 0.99,
       "high_water_mark": 8.4,
       "be_armed": false,
-      "cycles_held": 0,
+      "cycles_held": 1,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-08-07T15:37:55Z"
+  "last_run_utc": "2026-08-07T16:39:09Z"
 }
