@@ -168,3 +168,5 @@
 {"ts_utc": "2026-08-07T13:47:37Z", "event": "cycle_summary", "equity": 389.72, "buying_power": 1.0, "open_positions": ["AAPL", "GOOGL", "JPM"], "regime": "bull", "actions": 0}
 {"ts_utc": "2026-08-07T14:37:52Z", "event": "sell", "symbol": "AAPL", "quantity": "0.121725", "price_ref": 314.09, "reason": "time_stop", "pnl_pct": 2.23, "ref_id": "ee8e5f66-6951-4b25-a11d-8dc5d23bf900", "order_state": "unconfirmed"}
 {"ts_utc": "2026-08-07T14:37:52Z", "event": "cycle_summary", "equity": 389.72, "buying_power": 1.0, "open_positions": ["GOOGL", "JPM"], "regime": "bull", "actions": 1}
+{"ts_utc": "2026-08-07T15:37:55Z", "event": "buy", "symbol": "XRPR", "dollar_amount": "37.54", "price_ref": 8.39, "reason": "ml_ensemble", "confidence": 0.99, "ref_id": "9956510d-2713-464a-bcdd-07a304f0b100", "order_state": "unconfirmed"}
+{"ts_utc": "2026-08-07T15:37:55Z", "event": "cycle_summary", "equity": 391.09, "buying_power": 38.55, "open_positions": ["GOOGL", "JPM", "XRPR"], "regime": "bull", "actions": 1}
