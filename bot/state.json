@@ -8,9 +8,9 @@
       "entry_date_et": "2026-08-06",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.962,
-      "high_water_mark": 357.595,
+      "high_water_mark": 358.15,
       "be_armed": false,
-      "cycles_held": 10,
+      "cycles_held": 11,
       "reversal_streak": 0
     },
     "XRPR": {
@@ -19,7 +19,7 @@
       "entry_confidence": 0.99,
       "high_water_mark": 8.4,
       "be_armed": false,
-      "cycles_held": 3,
+      "cycles_held": 4,
       "reversal_streak": 0
     },
     "USO": {
@@ -28,7 +28,7 @@
       "entry_confidence": 0.997,
       "high_water_mark": 119.718,
       "be_armed": false,
-      "cycles_held": 0,
+      "cycles_held": 1,
       "reversal_streak": 0
     },
     "TOXR": {
@@ -37,9 +37,9 @@
       "entry_confidence": 0.965,
       "high_water_mark": 9.9199,
       "be_armed": false,
-      "cycles_held": 0,
+      "cycles_held": 1,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-08-07T18:37:38Z"
+  "last_run_utc": "2026-08-07T19:36:00Z"
 }

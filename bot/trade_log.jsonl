@@ -176,3 +176,4 @@
 {"ts_utc": "2026-08-07T18:37:36Z", "event": "buy", "symbol": "USO", "dollar_amount": "96.86", "price_ref": 119.718, "reason": "ml_ensemble", "confidence": 0.997, "ref_id": "3d5e8a12-4f6b-4c2e-9a7d-1e0b6c8f2a53", "order_id": "6a7625f0-e2b7-4633-989c-d2441535bb53", "order_state": "filled"}
 {"ts_utc": "2026-08-07T18:37:38Z", "event": "buy", "symbol": "TOXR", "dollar_amount": "61.08", "price_ref": 9.9199, "reason": "ml_ensemble", "confidence": 0.965, "ref_id": "8a1f4c73-2b9e-4d5f-b6c1-7e3a0d9f5b28", "order_id": "6a7625f2-386a-4999-aef0-66b394e97ecb", "order_state": "filled"}
 {"ts_utc": "2026-08-07T18:37:38Z", "event": "cycle_summary", "equity": 387.27, "buying_power": 1.0, "open_positions": ["JPM", "XRPR", "USO", "TOXR"], "regime": "bull", "actions": 2}
+{"ts_utc": "2026-08-07T19:36:00Z", "event": "cycle_summary", "equity": 386.68, "buying_power": 1.0, "open_positions": ["JPM", "XRPR", "USO", "TOXR"], "regime": "bull", "actions": 0}
