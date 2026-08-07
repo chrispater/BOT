@@ -1,6 +1,6 @@
 {
-  "date_et": "2026-08-06",
-  "start_of_day_equity": 389.22707381,
+  "date_et": "2026-08-07",
+  "start_of_day_equity": 389.72,
   "peak_equity": 389.72,
   "halted_today": false,
   "positions": {
@@ -10,7 +10,7 @@
       "entry_confidence": 1.0,
       "high_water_mark": 313.3436,
       "be_armed": false,
-      "cycles_held": 12,
+      "cycles_held": 13,
       "reversal_streak": 0
     },
     "GOOGL": {
@@ -19,7 +19,7 @@
       "entry_confidence": 0.935,
       "high_water_mark": 362.5,
       "be_armed": false,
-      "cycles_held": 6,
+      "cycles_held": 7,
       "reversal_streak": 0
     },
     "JPM": {
@@ -28,9 +28,9 @@
       "entry_confidence": 0.962,
       "high_water_mark": 357.145,
       "be_armed": false,
-      "cycles_held": 4,
+      "cycles_held": 5,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-08-06T19:37:39Z"
+  "last_run_utc": "2026-08-07T13:47:37Z"
 }
