@@ -8,9 +8,9 @@
       "entry_date_et": "2026-08-06",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.962,
-      "high_water_mark": 357.145,
+      "high_water_mark": 357.595,
       "be_armed": false,
-      "cycles_held": 8,
+      "cycles_held": 9,
       "reversal_streak": 0
     },
     "XRPR": {
@@ -19,9 +19,9 @@
       "entry_confidence": 0.99,
       "high_water_mark": 8.4,
       "be_armed": false,
-      "cycles_held": 1,
+      "cycles_held": 2,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-08-07T16:39:09Z"
+  "last_run_utc": "2026-08-07T17:36:00Z"
 }
