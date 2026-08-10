@@ -10,17 +10,8 @@
       "entry_confidence": 0.962,
       "high_water_mark": 358.15,
       "be_armed": false,
-      "cycles_held": 12,
+      "cycles_held": 13,
       "reversal_streak": 0
-    },
-    "XRPR": {
-      "entry_date_et": "2026-08-07",
-      "entry_reason": "ml_ensemble",
-      "entry_confidence": 0.99,
-      "high_water_mark": 8.4,
-      "be_armed": false,
-      "cycles_held": 5,
-      "reversal_streak": 1
     },
     "USO": {
       "entry_date_et": "2026-08-07",
@@ -28,7 +19,7 @@
       "entry_confidence": 0.997,
       "high_water_mark": 119.718,
       "be_armed": false,
-      "cycles_held": 2,
+      "cycles_held": 3,
       "reversal_streak": 0
     },
     "TOXR": {
@@ -37,16 +28,16 @@
       "entry_confidence": 0.965,
       "high_water_mark": 9.95,
       "be_armed": false,
-      "cycles_held": 2,
-      "reversal_streak": 0
+      "cycles_held": 3,
+      "reversal_streak": 1
     },
     "NVDA": {
       "entry_date_et": "2026-08-10",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.969,
-      "high_water_mark": 223.26,
+      "high_water_mark": 223.9,
       "be_armed": false,
-      "cycles_held": 0,
+      "cycles_held": 1,
       "reversal_streak": 0
     },
     "UUP": {
@@ -55,9 +46,9 @@
       "entry_confidence": 0.91,
       "high_water_mark": 28.1399,
       "be_armed": false,
-      "cycles_held": 0,
+      "cycles_held": 1,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-08-10T13:48:11Z"
+  "last_run_utc": "2026-08-10T14:45:39Z"
 }
