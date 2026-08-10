@@ -186,3 +186,4 @@
 {"ts_utc": "2026-08-10T15:38:16Z", "event": "sell", "symbol": "TOXR", "quantity": "6.157320", "price_ref": 9.9327, "reason": "signal_reversal", "pnl_pct": 0.13, "ref_id": "d95e6c48-1f3b-4a7d-9c8e-5b0a2d6f8c19", "order_id": "6a79f068-c49a-431b-90ef-e5f1f9d2ed05", "order_state": "filled"}
 {"ts_utc": "2026-08-10T15:38:16Z", "event": "cycle_summary", "equity": 390.07, "buying_power": 1.0, "open_positions": ["USO", "NVDA", "UUP"], "regime": "bull", "actions": 2}
 {"ts_utc": "2026-08-10T16:37:00Z", "event": "cycle_summary", "equity": 389.35, "buying_power": 1.0, "open_positions": ["USO", "NVDA", "UUP"], "regime": "bull", "actions": 0}
+{"ts_utc": "2026-08-10T17:36:00Z", "event": "cycle_summary", "equity": 390.34, "buying_power": 1.0, "open_positions": ["USO", "NVDA", "UUP"], "regime": "bull", "actions": 0}
