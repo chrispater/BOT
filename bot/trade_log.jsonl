@@ -188,3 +188,4 @@
 {"ts_utc": "2026-08-10T16:37:00Z", "event": "cycle_summary", "equity": 389.35, "buying_power": 1.0, "open_positions": ["USO", "NVDA", "UUP"], "regime": "bull", "actions": 0}
 {"ts_utc": "2026-08-10T17:36:00Z", "event": "cycle_summary", "equity": 390.34, "buying_power": 1.0, "open_positions": ["USO", "NVDA", "UUP"], "regime": "bull", "actions": 0}
 {"ts_utc": "2026-08-10T18:36:00Z", "event": "cycle_summary", "equity": 391.18, "buying_power": 1.0, "open_positions": ["USO", "NVDA", "UUP"], "regime": "bull", "actions": 0, "note": "new all-time equity high, peak_equity updated"}
+{"ts_utc": "2026-08-10T19:36:00Z", "event": "cycle_summary", "equity": 391.11, "buying_power": 1.0, "open_positions": ["USO", "NVDA", "UUP"], "regime": "bull", "actions": 0}
