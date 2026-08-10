@@ -1,16 +1,16 @@
 {
   "date_et": "2026-08-10",
   "start_of_day_equity": 390.75283025,
-  "peak_equity": 391.09,
+  "peak_equity": 391.1815288617,
   "halted_today": false,
   "positions": {
     "USO": {
       "entry_date_et": "2026-08-07",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.997,
-      "high_water_mark": 124.94,
+      "high_water_mark": 125.64,
       "be_armed": true,
-      "cycles_held": 6,
+      "cycles_held": 7,
       "reversal_streak": 0
     },
     "NVDA": {
@@ -19,18 +19,18 @@
       "entry_confidence": 0.969,
       "high_water_mark": 223.9,
       "be_armed": false,
-      "cycles_held": 4,
+      "cycles_held": 5,
       "reversal_streak": 0
     },
     "UUP": {
       "entry_date_et": "2026-08-10",
       "entry_reason": "bull_divergence+shakeout_spring",
       "entry_confidence": 0.91,
-      "high_water_mark": 28.1399,
+      "high_water_mark": 28.1499,
       "be_armed": false,
-      "cycles_held": 4,
+      "cycles_held": 5,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-08-10T17:36:00Z"
+  "last_run_utc": "2026-08-10T18:36:00Z"
 }
