@@ -8,9 +8,9 @@
       "entry_date_et": "2026-08-07",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.997,
-      "high_water_mark": 123.835,
+      "high_water_mark": 124.295,
       "be_armed": true,
-      "cycles_held": 4,
+      "cycles_held": 5,
       "reversal_streak": 0
     },
     "NVDA": {
@@ -19,7 +19,7 @@
       "entry_confidence": 0.969,
       "high_water_mark": 223.9,
       "be_armed": false,
-      "cycles_held": 2,
+      "cycles_held": 3,
       "reversal_streak": 0
     },
     "UUP": {
@@ -28,9 +28,9 @@
       "entry_confidence": 0.91,
       "high_water_mark": 28.1399,
       "be_armed": false,
-      "cycles_held": 2,
+      "cycles_held": 3,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-08-10T15:38:16Z"
+  "last_run_utc": "2026-08-10T16:37:00Z"
 }
