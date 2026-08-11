@@ -164,18 +164,207 @@ def init_db():
                 cur.execute(f'ALTER TABLE optimization_runs ADD COLUMN IF NOT EXISTS {col} {typ}')
             except Exception:
                 pass
+
+        # ── Market Intelligence Engine ────────────────────────────────────────
+        # Observations record market STATE on every cycle — not a BUY/SELL label.
+        # Forward outcomes (returns at several horizons, plus maximum favorable
+        # and adverse excursion) are backfilled once enough candles have elapsed.
+        # This is the data asset that lets us ask "when have I seen conditions
+        # like this before, and what happened next?" — it accumulates whether or
+        # not the bot trades, so it grows ~1,440 rows/day at 5 coins on 5m bars
+        # while trades accumulate only a handful.
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS observations (
+                id BIGSERIAL PRIMARY KEY,
+                user_id INTEGER REFERENCES users(id),
+                symbol VARCHAR(50) NOT NULL,
+                candle_ts TIMESTAMP NOT NULL,
+                price DECIMAL(18, 8) NOT NULL,
+                timeframe VARCHAR(10),
+                -- market state
+                features JSONB,
+                regime VARCHAR(20),
+                vol_pct DECIMAL(6, 4),
+                spread_bps DECIMAL(10, 4),
+                book_imbalance DECIMAL(6, 4),
+                funding_rate DECIMAL(12, 8),
+                oi_change DECIMAL(10, 6),
+                btc_ret_5 DECIMAL(10, 6),
+                btc_agree BOOLEAN,
+                hour_utc SMALLINT,
+                -- what the engines thought at the time
+                ml_signal SMALLINT,
+                ml_conf DECIMAL(6, 4),
+                setup_name VARCHAR(80),
+                traded BOOLEAN DEFAULT FALSE,
+                -- forward outcomes (backfilled)
+                ret_1 DECIMAL(12, 8),
+                ret_3 DECIMAL(12, 8),
+                ret_5 DECIMAL(12, 8),
+                ret_15 DECIMAL(12, 8),
+                mfe DECIMAL(12, 8),
+                mae DECIMAL(12, 8),
+                outcome_filled BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (user_id, symbol, candle_ts)
+            )
+        ''')
+        for stmt in (
+            'CREATE INDEX IF NOT EXISTS idx_obs_pending ON observations (user_id, symbol, outcome_filled, candle_ts)',
+            'CREATE INDEX IF NOT EXISTS idx_obs_analysis ON observations (user_id, outcome_filled, candle_ts)',
+        ):
+            try:
+                cur.execute(stmt)
+            except Exception:
+                pass
+
+        # Trade-level context + R-multiple accounting. Without these columns the
+        # conditional post-mortem ("which regime actually earned the money?") is
+        # unanswerable — the market state at entry was simply never recorded.
+        for col, typ in [
+            ('context', 'JSONB'), ('regime', 'VARCHAR(20)'), ('setup_name', 'VARCHAR(80)'),
+            ('vol_pct', 'DECIMAL(6,4)'), ('hour_utc', 'SMALLINT'),
+            ('r_multiple', 'DECIMAL(10,4)'), ('mfe_r', 'DECIMAL(10,4)'), ('mae_r', 'DECIMAL(10,4)'),
+            ('hold_secs', 'INTEGER'), ('leverage', 'SMALLINT'), ('quality_score', 'SMALLINT'),
+        ]:
+            try:
+                cur.execute(f'ALTER TABLE trades ADD COLUMN IF NOT EXISTS {col} {typ}')
+            except Exception:
+                pass
+
         conn.commit()
 
+# ── Market Intelligence Engine: observation storage ─────────────────────────
+
+def record_observation(user_id: int, symbol: str, candle_ts, price: float,
+                       timeframe: str, features: dict, context: dict):
+    """Store one market-state observation. Idempotent per (user, symbol, candle):
+    re-running a cycle on the same candle updates the live fields rather than
+    creating duplicates. Never raises — recording must not block trading."""
+    import json as _json
+    try:
+        with get_db() as conn:
+            cur = conn.cursor()
+            cur.execute('''
+                INSERT INTO observations (
+                    user_id, symbol, candle_ts, price, timeframe, features,
+                    regime, vol_pct, spread_bps, book_imbalance, funding_rate,
+                    oi_change, btc_ret_5, btc_agree, hour_utc,
+                    ml_signal, ml_conf, setup_name, traded
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (user_id, symbol, candle_ts) DO UPDATE SET
+                    ml_signal = EXCLUDED.ml_signal,
+                    ml_conf   = EXCLUDED.ml_conf,
+                    setup_name = COALESCE(EXCLUDED.setup_name, observations.setup_name),
+                    traded    = observations.traded OR EXCLUDED.traded
+            ''', (
+                user_id, symbol, candle_ts, price, timeframe, _json.dumps(features or {}),
+                context.get('regime'), context.get('vol_pct'), context.get('spread_bps'),
+                context.get('book_imbalance'), context.get('funding_rate'),
+                context.get('oi_change'), context.get('btc_ret_5'), context.get('btc_agree'),
+                context.get('hour_utc'), context.get('ml_signal'), context.get('ml_conf'),
+                context.get('setup_name'), bool(context.get('traded', False)),
+            ))
+    except Exception:
+        pass
+
+def get_pending_observations(user_id: int, symbol: str, limit: int = 200):
+    """Observations still awaiting forward-outcome backfill, oldest first."""
+    try:
+        with get_db() as conn:
+            cur = conn.cursor()
+            cur.execute('''
+                SELECT id, candle_ts, price FROM observations
+                WHERE user_id = %s AND symbol = %s AND outcome_filled = FALSE
+                ORDER BY candle_ts ASC LIMIT %s
+            ''', (user_id, symbol, limit))
+            return cur.fetchall()
+    except Exception:
+        return []
+
+def fill_observation_outcomes(rows: list):
+    """Bulk-write backfilled outcomes. rows = [(ret_1, ret_3, ret_5, ret_15,
+    mfe, mae, obs_id), ...]"""
+    if not rows:
+        return 0
+    try:
+        with get_db() as conn:
+            cur = conn.cursor()
+            cur.executemany('''
+                UPDATE observations
+                SET ret_1=%s, ret_3=%s, ret_5=%s, ret_15=%s, mfe=%s, mae=%s,
+                    outcome_filled = TRUE
+                WHERE id = %s
+            ''', rows)
+            return len(rows)
+    except Exception:
+        return 0
+
+def get_observations_for_analysis(user_id: int, since_days: int = 30, limit: int = 50000):
+    """Completed observations for edge analysis."""
+    try:
+        with get_db() as conn:
+            cur = conn.cursor()
+            cur.execute('''
+                SELECT * FROM observations
+                WHERE user_id = %s AND outcome_filled = TRUE
+                  AND candle_ts > NOW() - (%s || ' days')::INTERVAL
+                ORDER BY candle_ts DESC LIMIT %s
+            ''', (user_id, str(since_days), limit))
+            return cur.fetchall()
+    except Exception:
+        return []
+
+def get_closed_trades_with_context(user_id: int, since_days: int = 90, limit: int = 5000):
+    """Closed trades carrying R-multiple and market context, for the post-mortem."""
+    try:
+        with get_db() as conn:
+            cur = conn.cursor()
+            cur.execute('''
+                SELECT * FROM trades
+                WHERE user_id = %s AND trade_type = 'close' AND r_multiple IS NOT NULL
+                  AND created_at > NOW() - (%s || ' days')::INTERVAL
+                ORDER BY created_at DESC LIMIT %s
+            ''', (user_id, str(since_days), limit))
+            return cur.fetchall()
+    except Exception:
+        return []
+
 def save_trade(user_id: int, symbol: str, side: str, trade_type: str, size: float,
-               price: float, pnl: float = None, confidence: float = None, reason: str = None):
+               price: float, pnl: float = None, confidence: float = None, reason: str = None,
+               context: dict = None):
+    """Persist a trade. `context` carries the market state at entry plus R-multiple
+    accounting at exit — the fields the conditional post-mortem needs. It is
+    optional so older call sites keep working; a failure to write context must
+    never lose the trade row itself."""
+    import json as _json
+    ctx = context or {}
     with get_db() as conn:
         cur = conn.cursor()
-        cur.execute('''
-            INSERT INTO trades (user_id, symbol, side, trade_type, size, price, pnl, confidence, reason)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-            RETURNING id
-        ''', (user_id, symbol, side, trade_type, size, price, pnl, confidence, reason))
-        return cur.fetchone()['id']
+        try:
+            cur.execute('''
+                INSERT INTO trades (
+                    user_id, symbol, side, trade_type, size, price, pnl, confidence, reason,
+                    context, regime, setup_name, vol_pct, hour_utc,
+                    r_multiple, mfe_r, mae_r, hold_secs, leverage, quality_score
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                RETURNING id
+            ''', (
+                user_id, symbol, side, trade_type, size, price, pnl, confidence, reason,
+                _json.dumps(ctx.get('features') or {}), ctx.get('regime'), ctx.get('setup_name'),
+                ctx.get('vol_pct'), ctx.get('hour_utc'), ctx.get('r_multiple'),
+                ctx.get('mfe_r'), ctx.get('mae_r'), ctx.get('hold_secs'),
+                ctx.get('leverage'), ctx.get('quality_score'),
+            ))
+            return cur.fetchone()['id']
+        except Exception:
+            conn.rollback()
+            cur.execute('''
+                INSERT INTO trades (user_id, symbol, side, trade_type, size, price, pnl, confidence, reason)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+            ''', (user_id, symbol, side, trade_type, size, price, pnl, confidence, reason))
+            return cur.fetchone()['id']
 
 def save_signal(user_id: int, signal: int, confidence: float, price: float,
                 rsi: float = None, macd: float = None, adx: float = None):
