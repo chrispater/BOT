@@ -44,7 +44,8 @@ function CompoundTracker({ compound, balance, dynLeverage, maxLeverage }) {
         </div>
         <div style={{ background: 'var(--accent-red-dim)', border: '1px solid rgba(233,69,96,0.2)', borderRadius: 10, padding: '12px 14px', fontSize: 12, color: 'var(--accent-red)', lineHeight: 1.6 }}>
           Session PnL: <strong>{fmtSignedUsd(pnl)}</strong> — bot is net-losing this session.
-          No $1M projection shown until the session turns profitable. The autopilot is re-tuning to correct this.
+          No $1M projection shown until the session turns profitable. Check Insights to see whether the
+          evidence gates have identified which conditions are behind this, or run a fresh comparison from Optimize.
         </div>
         <p style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center', margin: '10px 0 0' }}>
           Based on realized trade ROI · 100% reinvestment · No guarantee

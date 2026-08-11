@@ -713,8 +713,17 @@ async def scan_market_direction(user = Depends(get_current_user)):
 
 def run_optimization_thread(user_id: int, selected_coins: list, starting_balance: float,
                             api_key: str = None, api_secret: str = None, api_password: str = None,
-                            max_leverage: int = None):
-    """Background thread to run optimization"""
+                            max_leverage: int = None, fixed_params: dict = None):
+    """Background thread to run optimization.
+
+    `fixed_params` pins every risk knob (risk_per_trade, stop_loss_pct,
+    take_profit_pct, trailing_stop_pct, min_confidence, adx_threshold,
+    trade_cooldown, profit_risk_multiplier) to the user's own configured
+    values, so this only ever searches TIMEFRAME. Grid-searching those knobs
+    for the best backtested ROI is exactly the curve-fitting the Market
+    Intelligence Engine exists to move away from — see ParameterOptimizer
+    for the full reasoning. `start_optimization` below always supplies it.
+    """
     import logging
     import traceback
     import time
@@ -745,6 +754,7 @@ def run_optimization_thread(user_id: int, selected_coins: list, starting_balance
             api_secret=api_secret,
             api_password=api_password,
             max_leverage=max_leverage,
+            fixed_params=fixed_params,
         )
 
         print(f"[OPTIMIZE] User {user_id}: Starting optimize()", flush=True)
@@ -780,110 +790,6 @@ def run_optimization_thread(user_id: int, selected_coins: list, starting_balance
             update_optimization_job(user_id, status='failed', error=error_msg)
         except:
             pass
-
-def _auto_config_beats_current(optimizer, best: dict, current_config: dict) -> bool:
-    """Gate for auto-apply: the search winner must clear basic sanity checks AND
-    materially beat the bot's current config scored on the SAME data (≥10% higher
-    score), so the bot never churns into an equal-or-worse parameter set."""
-    if best.get('total_return', 0) <= 0:
-        return False
-    if best.get('win_rate', 0) < 45:
-        return False
-    if best.get('total_trades', 0) < ParameterOptimizer.MIN_TRADES:
-        return False
-    cur_score, _ = optimizer.score_config(current_config)
-    best_score = best.get('score')
-    if best_score is None:
-        return False
-    if cur_score <= 0:
-        return best_score > 0
-    return best_score >= cur_score * 1.10
-
-
-def run_auto_optimization_thread(user_id: int, selected_coins: list, starting_balance: float,
-                                 current_config: dict, target_bot,
-                                 api_key: str = None, api_secret: str = None, api_password: str = None):
-    """Background self-tuning run. Re-optimizes, then queues the winner for hot-apply
-    (applied on the next flat cycle) and persists it, but only if it materially beats
-    the bot's current config. Reuses the same job/history plumbing as manual runs.
-
-    target_bot is the exact TradingService instance that launched this run. Optimize
-    can take minutes; if the user stops/restarts the bot meanwhile, user_bots[user_id]
-    becomes a DIFFERENT instance. We only ever mutate/reset target_bot, and only while
-    it's still the live instance — never a stale or replacement bot."""
-    import time as _t
-    import traceback
-    def _still_live():
-        return user_bots.get(user_id) is target_bot
-    try:
-        if not try_start_optimization_job(user_id):
-            print(f"[AUTO-OPT] User {user_id}: optimization job busy — skipping this round", flush=True)
-            return
-        update_optimization_job(user_id, status='running', progress=0)
-        print(f"[AUTO-OPT] User {user_id}: starting self-tune across {selected_coins}", flush=True)
-
-        optimizer = ParameterOptimizer(
-            user_id=user_id, selected_coins=selected_coins, starting_balance=starting_balance,
-            api_key=api_key, api_secret=api_secret, api_password=api_password,
-            max_leverage=current_config.get('leverage'),
-        )
-        result = optimizer.optimize(days=60)
-        result_json = json.dumps(result, cls=_NumpyEncoder)
-        update_optimization_job(user_id, status='completed', progress=100, result=result_json)
-
-        top = result.get('top_configs') or []
-        best = top[0] if top else None
-        save_optimization_run(
-            user_id=user_id, coins=selected_coins, days=60,
-            total_tested=int(result.get('total_tested', 0)),
-            valid_configs=int(result.get('valid_configs', 0)),
-            result=result_json,
-            best_roi=float(best.get('total_return', 0) or 0) if best else 0,
-            best_monthly_roi=float(best.get('monthly_roi', 0) or 0) if best else 0,
-            best_win_rate=float(best.get('win_rate', 0) or 0) if best else 0,
-        )
-
-        if best and _still_live() and _auto_config_beats_current(optimizer, best, current_config):
-            # Structural params come from the optimizer.
-            # risk_per_trade, daily_loss_limit, and max_positions are user-controlled
-            # sizing/safety knobs — autopilot must NOT override them.
-            cfg = {k: best[k] for k in (
-                'leverage', 'timeframe', 'stop_loss_pct', 'take_profit_pct',
-                'trailing_stop_pct', 'min_confidence', 'adx_threshold',
-                'profit_risk_multiplier', 'trade_cooldown',
-            ) if k in best}
-            target_bot._pending_auto_config = cfg   # hot-applied on next flat cycle
-            update_user_settings(
-                user_id,
-                leverage=int(cfg['leverage']) if 'leverage' in cfg else None,
-                timeframe=str(cfg['timeframe']) if 'timeframe' in cfg else None,
-                stop_loss_pct=float(cfg['stop_loss_pct']) if 'stop_loss_pct' in cfg else None,
-                take_profit_pct=float(cfg['take_profit_pct']) if 'take_profit_pct' in cfg else None,
-                trailing_stop_pct=float(cfg['trailing_stop_pct']) if 'trailing_stop_pct' in cfg else None,
-                min_confidence=float(cfg['min_confidence']) if 'min_confidence' in cfg else None,
-                adx_threshold=int(cfg['adx_threshold']) if 'adx_threshold' in cfg else None,
-                profit_risk_multiplier=float(cfg['profit_risk_multiplier']) if 'profit_risk_multiplier' in cfg else None,
-                trade_cooldown=int(cfg['trade_cooldown']) if 'trade_cooldown' in cfg else None,
-            )
-            print(f"[AUTO-OPT] User {user_id}: new config queued + persisted: {cfg}", flush=True)
-        else:
-            print(f"[AUTO-OPT] User {user_id}: current config retained (no material improvement)", flush=True)
-    except Exception as e:
-        print(f"[AUTO-OPT] User {user_id}: ERROR - {type(e).__name__}: {e}", flush=True)
-        print(traceback.format_exc(), flush=True)
-        try:
-            update_optimization_job(user_id, status='failed', error=f"{type(e).__name__}: {e}")
-        except Exception:
-            pass
-    finally:
-        # Only reset the instance that launched this run, and only if it's still
-        # live. A stopped/replaced bot starts fresh from __init__, so we must not
-        # clobber a new instance's timers here.
-        if _still_live():
-            target_bot._auto_opt_in_progress = False
-            target_bot._last_auto_opt = _t.time()
-            target_bot._auto_opt_regime = target_bot.market_regime
-
 
 @app.post("/api/optimize/start")
 async def start_optimization(user = Depends(get_current_user)):
@@ -930,11 +836,25 @@ async def start_optimization(user = Depends(get_current_user)):
         print(traceback.format_exc(), flush=True)
         api_key = api_secret = api_password = None
 
+    # Pin every risk knob to what the user has actually configured — this search
+    # only ever compares TIMEFRAME now (see run_optimization_thread's docstring).
+    fixed_params = {
+        'leverage': user_settings.get('leverage', 10),
+        'risk_per_trade': user_settings.get('risk_per_trade', 0.02),
+        'stop_loss_pct': user_settings.get('stop_loss_pct', 0.15),
+        'take_profit_pct': user_settings.get('take_profit_pct', 0.30),
+        'trailing_stop_pct': user_settings.get('trailing_stop_pct', 0.10),
+        'profit_risk_multiplier': user_settings.get('profit_risk_multiplier', 1.5),
+        'trade_cooldown': user_settings.get('trade_cooldown', 300),
+        'min_confidence': user_settings.get('min_confidence', 0.65),
+        'adx_threshold': user_settings.get('adx_threshold', 18),
+    }
+
     print(f"[START] User {user_id}: Creating thread...", flush=True)
     thread = threading.Thread(
         target=run_optimization_thread,
         args=(user_id, user_settings['selected_coins'], user_settings['starting_balance'],
-              api_key, api_secret, api_password, user_settings.get('leverage'))
+              api_key, api_secret, api_password, user_settings.get('leverage'), fixed_params)
     )
     thread.daemon = False  # Non-daemon so it keeps running
     thread.start()
@@ -1106,6 +1026,60 @@ async def edge_report(days: int = 120, user = Depends(get_current_user)):
         'summary': format_postmortem(profile, cost_r=cost_r),
     }
 
+@app.get("/api/mie/validation")
+async def mie_validation(user = Depends(get_current_user)):
+    """
+    Per-horizon purged walk-forward validation reports from the Market
+    Intelligence Engine's edge models — the honest replacement for "did the
+    optimizer find a good config". Nothing here was chosen for looking good;
+    each horizon's model either survived training on one period and testing
+    on a later one it never saw, or it didn't, and `validated` says which.
+
+    Returns 'not started yet' cleanly rather than 404 — a bot that hasn't
+    accumulated the ~500 resolved observations needed for a first fit attempt
+    is a normal, expected state, not an error.
+    """
+    import time
+
+    def _clean_float(v, digits):
+        return round(v, digits) if v is not None and v == v else None   # v == v is False for NaN
+
+    user_id = user['user_id']
+    bot = user_bots.get(user_id)
+    if not bot or not getattr(bot, '_mie', None):
+        return {'available': False, 'horizons': [], 'resolved_observations': 0,
+                'reason': 'Market Intelligence Engine is not running for this account.'}
+
+    horizons = []
+    for horizon_sec, model in sorted(bot._mie.edge_models.items()):
+        report = model.report
+        horizons.append({
+            'horizon_sec': horizon_sec,
+            'fitted': bool(model._fitted),
+            'validated': bool(report and report.validated),
+            'reason': report.reason if report else 'not fit yet',
+            'n_splits_run': report.n_splits_run if report else 0,
+            'folds_with_edge': report.folds_with_edge if report else 0,
+            'pooled_auc': _clean_float(report.pooled_auc, 4) if report else None,
+            'pooled_ret_corr': _clean_float(report.pooled_ret_corr, 4) if report else None,
+            'pooled_expectancy': _clean_float(report.pooled_expectancy, 5) if report else None,
+            'pooled_win_rate': _clean_float(report.pooled_win_rate, 4) if report else None,
+            'pooled_trades': report.pooled_trades if report else 0,
+            'model_confidence': model._confidence() if model._fitted else 0.0,
+            'feature_count': len(model.feature_columns) if model.feature_columns else 0,
+        })
+
+    return {
+        'available': True,
+        'gate_enabled': bool(bot.mie_gate_enabled),
+        'any_validated': bool(bot._mie.any_validated),
+        'resolved_observations': bot._mie_store.count_resolved() if bot._mie_store else 0,
+        'last_fit_hours_ago': (
+            round((time.time() - bot._mie_last_fit) / 3600, 1) if bot._mie_last_fit else None
+        ),
+        'horizons': horizons,
+    }
+
 @app.get("/api/user/permissions")
 async def get_my_permissions(user = Depends(get_current_user)):
     user_id = user['user_id']
@@ -1172,34 +1146,6 @@ async def admin_update_permissions(target_user_id: int, perms_update: Permission
                            is_admin=perms_update.is_admin)
     return {"status": "updated", "user_id": target_user_id}
 
-def _launch_auto_optimize(user_id: int, bot):
-    """Spawn a background self-tuning run. Marks the bot in-progress immediately so
-    the scheduler doesn't double-fire while the thread is working."""
-    bot._auto_opt_in_progress = True
-    try:
-        with get_db() as conn:
-            cur = conn.cursor()
-            cur.execute(
-                "SELECT encrypted_api_key, encrypted_api_secret, encrypted_api_password "
-                "FROM users WHERE id = %s", (user_id,)
-            )
-            row = cur.fetchone()
-        api_key      = decrypt_credential(row['encrypted_api_key'])      if row and row['encrypted_api_key']      else None
-        api_secret   = decrypt_credential(row['encrypted_api_secret'])   if row and row['encrypted_api_secret']   else None
-        api_password = decrypt_credential(row['encrypted_api_password']) if row and row['encrypted_api_password'] else None
-
-        thread = threading.Thread(
-            target=run_auto_optimization_thread,
-            args=(user_id, bot.selected_coins, bot.starting_balance,
-                  bot.current_config_snapshot(), bot, api_key, api_secret, api_password),
-        )
-        thread.daemon = False
-        thread.start()
-        print(f"[AUTO-OPT] User {user_id}: self-tune thread launched", flush=True)
-    except Exception as e:
-        bot._auto_opt_in_progress = False
-        print(f"[AUTO-OPT] User {user_id}: failed to launch self-tune: {e}", flush=True)
-
 def refresh_edge_profile(user_id: int, bot) -> dict:
     """Recompute the conditional edge profile and hand it to the bot.
 
@@ -1253,11 +1199,6 @@ async def run_bot_loop(user_id: int):
                         })
                     except:
                         pass
-
-            # Autonomous self-tuning: when due (daily, or sooner on a regime flip),
-            # kick off a background re-optimization that auto-applies the winner.
-            if bot.due_for_auto_optimize():
-                _launch_auto_optimize(user_id, bot)
 
         except Exception as e:
             consecutive_errors += 1

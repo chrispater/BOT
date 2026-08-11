@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { Card, EmptyState } from '../components/Primitives'
+import { Card, EmptyState, InfoDot } from '../components/Primitives'
+import MieValidationPanel from '../components/MieValidation'
 
 export default function OptimizePage({ api, setError, setSuccess }) {
   const [optimizeResults, setOptimizeResults] = useState(null)
@@ -120,14 +121,23 @@ export default function OptimizePage({ api, setError, setSuccess }) {
 
   return (
     <>
-      <Card title="Parameter Optimizer">
+      <Card title="Timeframe Comparison"
+        right={<InfoDot>
+          This used to grid-search ~1,350 combinations of leverage/stop-loss/take-profit/confidence for the
+          best backtested ROI — exactly the curve-fitting the Market Intelligence Engine exists to move away
+          from. It now compares only TIMEFRAME, walk-forward validated, with every risk setting held at
+          whatever you've configured in Settings. If you want risk parameters tuned by evidence rather than
+          a search, that's what the Market Intelligence Validation panel below is for.
+        </InfoDot>}
+      >
         <p style={{ color: 'var(--text-secondary)', fontSize: 14, marginBottom: 12, lineHeight: 1.5 }}>
-          Automatically discovers the best trading parameters for your coins by testing ~1,350 configurations across all timeframes. Returns top performers ranked by ROI, win rate, drawdown, and trade count.
+          Backtests your current risk settings across up to 7 timeframes, walk-forward validated so a result
+          has to hold up across multiple out-of-sample periods, not just look good once.
         </p>
-        <p style={{ color: 'var(--accent)', fontSize: 12, marginBottom: 16 }}>Warning: This takes 5–15 minutes to complete.</p>
+        <p style={{ color: 'var(--accent)', fontSize: 12, marginBottom: 16 }}>Takes a few minutes to complete.</p>
         <div style={{ display: 'flex', gap: 8 }}>
           <button className="btn btn-primary" onClick={runOptimization} disabled={optimizeLoading}>
-            {optimizeLoading ? (optimizeStatus || 'Optimizing...') : 'Find Best Parameters'}
+            {optimizeLoading ? (optimizeStatus || 'Comparing...') : 'Compare Timeframes'}
           </button>
           {optimizeLoading && (
             <button className="btn btn-danger" onClick={resetOptimization} style={{ maxWidth: 90, padding: '14px 12px', fontSize: 13 }}>Reset</button>
@@ -136,17 +146,31 @@ export default function OptimizePage({ api, setError, setSuccess }) {
         {optimizeError && <div className="error-message" style={{ marginTop: 16 }}>{optimizeError}</div>}
       </Card>
 
+      <MieValidationPanel api={api} />
+
       {optimizeResults && (
-        <Card title="Top Configurations">
+        <Card title="Results">
           <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4 }}>
-            Tested {optimizeResults.total_tested} configs · {optimizeResults.valid_configs} profitable · {optimizeResults.days_tested} days
+            {optimizeResults.valid_configs} timeframe{optimizeResults.valid_configs !== 1 ? 's' : ''} cleared the minimum trade/win-rate bar · {optimizeResults.days_tested} days
           </div>
           <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 16 }}>
             Coins: {optimizeResults.selected_coins?.map(c => c.split('/')[0]).join(', ')}
           </div>
 
+          {optimizeResults.top_configs?.length > 0 && (() => {
+            const c0 = optimizeResults.top_configs[0]
+            return (
+              <div style={{ padding: '8px 10px', background: 'var(--bg-card-alt)', borderRadius: 8, border: '1px solid var(--border)', marginBottom: 14, fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.6 }}>
+                Held fixed at your current settings: {c0.leverage}x leverage · {(c0.risk_per_trade * 100).toFixed(1)}% risk ·{' '}
+                {(c0.stop_loss_pct * 100).toFixed(2)}% SL · {(c0.take_profit_pct * 100).toFixed(2)}% TP ·{' '}
+                {(c0.min_confidence * 100).toFixed(0)}% confidence · {formatCooldown(c0.trade_cooldown)} cooldown ·{' '}
+                {c0.adx_threshold ?? '—'} ADX. Change these in Settings, not by searching for a better-looking backtest.
+              </div>
+            )
+          })()}
+
           {optimizeResults.top_configs?.length === 0 ? (
-            <p style={{ color: 'var(--accent)' }}>No profitable configurations found. Try different coins or timeframes.</p>
+            <p style={{ color: 'var(--accent)' }}>No timeframe cleared the minimum trade count / win rate bar for these coins.</p>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {optimizeResults.top_configs?.map((config, i) => {
@@ -161,22 +185,10 @@ export default function OptimizePage({ api, setError, setSuccess }) {
                     border: isSelected ? '1px solid rgba(0,212,170,0.4)' : '1px solid var(--border)',
                   }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                      <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>#{i + 1} — {config.timeframe}</span>
+                      <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--accent)' }}>{config.timeframe}</span>
                       <span style={{ fontSize: 15, fontWeight: 700, color: config.total_return >= 0 ? 'var(--accent-green)' : 'var(--accent-red)' }}>
                         {config.total_return >= 0 ? '+' : ''}{config.total_return.toFixed(1)}% ROI
                       </span>
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, fontSize: 12, color: 'var(--text-secondary)', marginBottom: 10 }}>
-                      <span>Leverage: <strong style={{ color: 'var(--text-primary)' }}>{config.leverage}x</strong></span>
-                      <span>Risk: <strong style={{ color: 'var(--text-primary)' }}>{(config.risk_per_trade * 100).toFixed(0)}%</strong></span>
-                      <span>SL: <strong style={{ color: 'var(--accent-red)' }}>{(config.stop_loss_pct * 100).toFixed(2)}%</strong></span>
-                      <span>TP: <strong style={{ color: 'var(--accent-green)' }}>{(config.take_profit_pct * 100).toFixed(2)}%</strong></span>
-                      <span>Trail: <strong style={{ color: 'var(--text-primary)' }}>{config.trailing_stop_pct != null ? `${(config.trailing_stop_pct * 100).toFixed(1)}%` : '—'}</strong></span>
-                      <span>Conf: <strong style={{ color: 'var(--text-primary)' }}>{(config.min_confidence * 100).toFixed(0)}%</strong></span>
-                      <span>ADX: <strong style={{ color: 'var(--text-primary)' }}>{config.adx_threshold ?? '—'}</strong></span>
-                      <span>Cooldown: <strong style={{ color: 'var(--text-primary)' }}>{formatCooldown(config.trade_cooldown)}</strong></span>
-                      <span>Score: <strong style={{ color: 'var(--accent-blue)' }}>{config.score?.toFixed(3)}</strong></span>
                     </div>
 
                     {monthlyRet > 0 && (
@@ -192,7 +204,7 @@ export default function OptimizePage({ api, setError, setSuccess }) {
                         {config.win_rate.toFixed(1)}% win · {config.total_trades} trades · ${config.total_pnl.toFixed(0)} PnL
                       </span>
                       <button className="btn btn-secondary" style={{ padding: '6px 14px', fontSize: 12, width: 'auto' }} onClick={() => applyConfig(config)} disabled={applyLoading}>
-                        {isSelected ? 'Applied' : 'Apply'}
+                        {isSelected ? 'Applied' : 'Use this timeframe'}
                       </button>
                     </div>
 
@@ -272,12 +284,11 @@ export default function OptimizePage({ api, setError, setSuccess }) {
 
       <Card title="How It Works">
         <ul className="strategy-list">
-          <li><strong>Smart Search:</strong> Tests 100 random parameter combos per timeframe across all major timeframes</li>
-          <li><strong>Trailing Stop:</strong> Also optimises trailing stop distance (0.5%–2%) for locked profits</li>
-          <li><strong>Composite Score:</strong> 50% ROI + 30% Win Rate + 20% Trade Count, with drawdown penalty</li>
-          <li><strong>Drawdown Guard:</strong> Penalises configs where max drawdown exceeds 15%</li>
-          <li><strong>Min Trades:</strong> Rejects configs with fewer than 15 trades (avoids overfitting)</li>
-          <li><strong>Compound Projection:</strong> Shows annualised compounding at each config's monthly return</li>
+          <li><strong>Timeframe only:</strong> Leverage, risk per trade, stop-loss, take-profit, trailing stop, confidence, cooldown and ADX threshold all stay at your current Settings — nothing is grid-searched for the best-looking backtest</li>
+          <li><strong>Walk-forward validated:</strong> Each timeframe is trained on an expanding window and tested on the next out-of-sample segment, rolled forward — a result only counts if it holds up across multiple forward periods</li>
+          <li><strong>Composite Score:</strong> Weighted blend of return, win rate, Calmar ratio and walk-forward consistency, with a drawdown penalty — used to rank timeframes, not to hunt for a config</li>
+          <li><strong>Min Trades:</strong> A timeframe with too few trades to be statistically meaningful is excluded rather than ranked</li>
+          <li><strong>To change risk parameters:</strong> Use Settings directly, or wait for the Market Intelligence Engine above to validate a horizon — it earns the right to size and gate trades through evidence, not a search</li>
         </ul>
       </Card>
     </>

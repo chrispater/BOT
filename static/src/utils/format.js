@@ -29,6 +29,14 @@ export const fmtR = (v, digits = 3) => {
 
 export const coinOf = (symbol) => (symbol ? symbol.split('/')[0] : 'Unknown')
 
+// Mirrors backend/mie/state.py's horizon_label(): 30 -> '30s', 180 -> '3m'.
+export const horizonLabel = (seconds) => {
+  if (!seconds) return '—'
+  if (seconds % 3600 === 0) return `${seconds / 3600}h`
+  if (seconds % 60 === 0) return `${seconds / 60}m`
+  return `${seconds}s`
+}
+
 // Traffic-light coloring used across confidence/quality/win-rate displays —
 // one place to tune what counts as "good" vs "risky".
 export const colorForScore = (score, { good = 70, warn = 50 } = {}) => {

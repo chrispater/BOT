@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Card, EmptyState } from '../components/Primitives'
+import { Card, EmptyState, InfoDot } from '../components/Primitives'
 import { fmtUsd, fmtSignedUsd, coinOf, regimeColor, regimeLabel } from '../utils/format'
 
 /* ─────────────────────────── Growth Projection ─────────────────────────── */
@@ -176,9 +176,16 @@ export default function StrategyPage({ strategies, api }) {
     <>
       <MarketDirectionScanner api={api} />
 
-      <Card title="Backtest Strategy">
+      <Card title="Backtest — Legacy ML Pipeline"
+        right={<InfoDot>
+          This simulates your CURRENT settings historically — it isn't a search, and nothing here gets
+          curve-fit to the result. It's the ML+setup pipeline's own single-config sanity check, separate
+          from the Market Intelligence Engine's purged walk-forward validation (see the Optimize tab for
+          that — Market Intelligence Validation panel).
+        </InfoDot>}
+      >
         <p style={{ color: 'var(--text-secondary)', fontSize: 14, marginBottom: 16, lineHeight: 1.5 }}>
-          Runs a historical simulation using the full ML pipeline, fees, trailing stops, cooldown, and confidence thresholds — identical to live trading.
+          Runs a historical simulation of the legacy ML+setup pipeline using your CURRENT settings — fees, trailing stops, cooldown, and confidence thresholds — identical to live trading. Reports what those settings would have done; it doesn't search for better ones.
         </p>
         <button className="btn btn-primary" onClick={runBacktest} disabled={backtestLoading}>
           {backtestLoading ? 'Running Backtest...' : 'Run Backtest'}
@@ -332,7 +339,11 @@ export default function StrategyPage({ strategies, api }) {
 
       <Card>
         <h2 style={{ fontSize: 18, marginBottom: 6, fontWeight: 700 }}>{strategies.name}</h2>
-        <p style={{ color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.6 }}>{strategies.description}</p>
+        <p style={{ color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.6, marginBottom: 10 }}>{strategies.description}</p>
+        <p style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+          This describes the legacy ML+setup engine's feature set below. It's still what trades when the
+          Market Intelligence Engine doesn't have a validated opinion — see Insights for how the two combine.
+        </p>
       </Card>
 
       {strategies.components?.map((component, i) => (

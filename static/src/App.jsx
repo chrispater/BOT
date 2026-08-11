@@ -94,36 +94,30 @@ function App() {
             )}
             {botStatus.model_type && <span className="model-badge">{botStatus.model_type}</span>}
             {botStatus.signal_engine_active && <span className="signal-badge">SignalEngine</span>}
-            {botStatus.mie_gate_enabled && (
-              <span
-                className="model-badge"
-                title={botStatus.mie_any_validated ? 'A validated model is influencing entries' : 'Enabled, still learning — no validated model yet'}
-                style={{
-                  background: botStatus.mie_any_validated ? 'rgba(0,212,170,0.15)' : 'rgba(245,166,35,0.15)',
-                  color: botStatus.mie_any_validated ? '#00d4aa' : '#f5a623',
-                  border: `1px solid ${botStatus.mie_any_validated ? '#00d4aa' : '#f5a623'}`,
-                }}
-              >MIE {botStatus.mie_any_validated ? 'ARMED' : 'LEARNING'}</span>
-            )}
-            {botStatus.auto_optimize_enabled && (
-              <span
-                className="model-badge"
-                title={
-                  botStatus.auto_opt_in_progress ? 'Re-tuning parameters now…'
-                  : botStatus.auto_opt_pending ? 'New config queued — applies when flat'
-                  : `Self-tuning · last run ${botStatus.hours_since_auto_opt ?? '?'}h ago`
-                }
-                style={{
-                  background: botStatus.auto_opt_in_progress ? 'rgba(74,158,255,0.18)' : 'rgba(0,212,170,0.15)',
-                  color: botStatus.auto_opt_in_progress ? '#4a9eff' : '#00d4aa',
-                  border: `1px solid ${botStatus.auto_opt_in_progress ? '#4a9eff' : '#00d4aa'}`,
-                }}
-              >
-                {botStatus.auto_opt_in_progress ? 'AUTOPILOT · TUNING'
-                  : botStatus.auto_opt_pending ? 'AUTOPILOT · QUEUED'
-                  : 'AUTOPILOT'}
-              </span>
-            )}
+            {/* Successor to the old AUTOPILOT badge: instead of a scheduled
+               parameter-search that silently hot-applied a "winning" config
+               (the exact curve-fitting the Market Intelligence Engine exists
+               to move away from), this reflects MIE's own continuous
+               record-and-revalidate cycle — always visible when MIE is
+               running, whether or not its gate is currently allowed to act
+               on an entry. */}
+            {botStatus.mie_available && (() => {
+              const armed = botStatus.mie_gate_enabled && botStatus.mie_any_validated
+              const learning = botStatus.mie_gate_enabled && !botStatus.mie_any_validated
+              const color = armed ? '#00d4aa' : learning ? '#f5a623' : '#8b95a5'
+              const label = armed ? 'MIE · ARMED' : learning ? 'MIE · LEARNING' : 'MIE · OBSERVING'
+              const title = armed
+                ? 'A validated model is influencing entries'
+                : learning
+                  ? 'Gate enabled, still validating — no model has earned trust yet'
+                  : 'Recording market state and continuously re-validating in the background (gate is off, so it cannot affect entries yet)'
+              return (
+                <span className="model-badge" title={title} style={{
+                  background: `color-mix(in srgb, ${color} 15%, transparent)`,
+                  color, border: `1px solid ${color}`,
+                }}>{label}</span>
+              )
+            })()}
           </div>
         )}
       </header>

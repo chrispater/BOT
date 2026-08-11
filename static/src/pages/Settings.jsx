@@ -360,14 +360,14 @@ export default function SettingsPage({ api, logout, setError, setSuccess, botSta
           <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>Stops opening new positions if account drawdown exceeds this. (5%–50%)</p>
         </div>
         <div className="input-group">
-          <label>Profit Risk Multiplier</label>
+          <label>Profit Risk Multiplier <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(legacy ML engine)</span></label>
           <input type="number" value={profitRiskMultiplier} onChange={e => setProfitRiskMultiplier(Number(e.target.value))} min="1.0" max="3.0" step="0.1" disabled={isBotRunning} style={dis(isBotRunning)} />
-          <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>Applies extra risk to profits above starting balance — "house money" mode. 1.5 = 50% more aggressive on profits. (1.0–3.0)</p>
+          <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>Applies extra risk to profits above starting balance — "house money" mode. 1.5 = 50% more aggressive on profits. Sizes the legacy engine's trades only; the Market Intelligence Engine sizes its own trades from validated win probability. (1.0–3.0)</p>
         </div>
         <div className="input-group">
-          <label>Model Retrain Interval (cycles)</label>
+          <label>Model Retrain Interval (cycles) <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(legacy ML engine)</span></label>
           <input type="number" value={retrainEvery} onChange={e => setRetrainEvery(Number(e.target.value))} min="10" max="500" step="10" disabled={isBotRunning} style={dis(isBotRunning)} />
-          <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>Retrain the ML model every N cycles to adapt to current market conditions. (10–500)</p>
+          <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>Retrain the legacy ML classifier every N cycles. The Market Intelligence Engine re-validates itself on its own fixed schedule (see Insights) — this setting doesn't affect it. (10–500)</p>
         </div>
         <button className="btn btn-primary" onClick={saveSettings} disabled={settingsLoading || isBotRunning}>
           {settingsLoading ? 'Saving...' : 'Save Compounding Settings'}
