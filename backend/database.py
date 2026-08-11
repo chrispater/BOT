@@ -82,6 +82,12 @@ def init_db():
             ('adx_threshold', 'INTEGER', '18'),
             ('daily_loss_limit', 'DECIMAL(5, 4)', '0.08'),
             ('max_positions', 'INTEGER', '3'),
+            # Market Intelligence Engine: lets a validated conditional-expectancy
+            # model veto a legacy-pipeline entry when it has no positive-EV setup
+            # for current conditions. Off by default — it can only ever narrow
+            # trading, never force a trade, so it's safe to enable per-user
+            # independent of anything else in this table.
+            ('mie_gate_enabled', 'BOOLEAN', 'FALSE'),
         ]
         for col, col_type, default in columns_to_add:
             try:
@@ -225,7 +231,7 @@ def get_user_settings(user_id: int):
                    trade_cooldown, min_confidence, timeframe,
                    trailing_stop_pct, max_drawdown_pct, retrain_every,
                    profit_risk_multiplier, simulation_mode, adx_threshold,
-                   daily_loss_limit, max_positions
+                   daily_loss_limit, max_positions, mie_gate_enabled
             FROM users WHERE id = %s
         ''', (user_id,))
         row = cur.fetchone()
@@ -248,6 +254,7 @@ def get_user_settings(user_id: int):
                 'adx_threshold': int(row['adx_threshold']) if row.get('adx_threshold') is not None else 18,
                 'daily_loss_limit': float(row['daily_loss_limit']) if row.get('daily_loss_limit') is not None else 0.08,
                 'max_positions': int(row['max_positions']) if row.get('max_positions') is not None else 3,
+                'mie_gate_enabled': bool(row['mie_gate_enabled']) if row.get('mie_gate_enabled') is not None else False,
             }
         return {
             'starting_balance': 10000,
@@ -267,6 +274,7 @@ def get_user_settings(user_id: int):
             'adx_threshold': 18,
             'daily_loss_limit': 0.08,
             'max_positions': 3,
+            'mie_gate_enabled': False,
         }
 
 def update_user_settings(user_id: int, starting_balance: float = None,
@@ -277,7 +285,8 @@ def update_user_settings(user_id: int, starting_balance: float = None,
                          trailing_stop_pct: float = None, max_drawdown_pct: float = None,
                          retrain_every: int = None, profit_risk_multiplier: float = None,
                          simulation_mode: bool = None, adx_threshold: int = None,
-                         daily_loss_limit: float = None, max_positions: int = None):
+                         daily_loss_limit: float = None, max_positions: int = None,
+                         mie_gate_enabled: bool = None):
     with get_db() as conn:
         cur = conn.cursor()
         updates = []
@@ -333,6 +342,9 @@ def update_user_settings(user_id: int, starting_balance: float = None,
         if max_positions is not None:
             updates.append("max_positions = %s")
             values.append(int(max_positions))
+        if mie_gate_enabled is not None:
+            updates.append("mie_gate_enabled = %s")
+            values.append(bool(mie_gate_enabled))
         if updates:
             values.append(user_id)
             cur.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = %s", values)

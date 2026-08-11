@@ -424,6 +424,7 @@ async def start_bot(user = Depends(get_current_user)):
         adx_threshold=user_settings.get('adx_threshold', 18),
         daily_loss_limit=user_settings.get('daily_loss_limit', 0.08),
         max_positions=user_settings.get('max_positions', 3),
+        mie_gate_enabled=user_settings.get('mie_gate_enabled', False),
         on_trade=on_trade,
         on_signal=on_signal,
         on_performance=on_performance
@@ -642,6 +643,7 @@ async def run_backtest(user = Depends(get_current_user)):
         adx_threshold=user_settings.get('adx_threshold', 18),
         daily_loss_limit=user_settings.get('daily_loss_limit', 0.08),
         max_positions=user_settings.get('max_positions', 3),
+        mie_gate_enabled=user_settings.get('mie_gate_enabled', False),
     )
 
     # FIX: run_backtest involves ML training (30-120 seconds). Running it directly

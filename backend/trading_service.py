@@ -107,6 +107,22 @@ try:
 except Exception:
     SIGNAL_ENGINE_AVAILABLE = False
 
+# ── Optional Market Intelligence Engine ──
+# A research-first alternative decision layer: instead of an ML BUY/SELL
+# classifier, it records unlabeled market state, waits for outcomes to
+# resolve, and only lets a model influence a trade after it survives purged
+# walk-forward validation. See backend/mie/README.md. Off by default
+# (mie_gate_enabled=False) — when enabled it can veto (never force) an entry
+# the legacy ML/setup pipeline below wants to take, on the principle that
+# DO_NOTHING should be the harder-to-earn-out-of default state, not the
+# other way around.
+try:
+    from backend.mie import MarketIntelligenceEngine, EngineConfig, ObservationStore, ACTION_NOTHING as MIE_DO_NOTHING
+    MIE_AVAILABLE = True
+except Exception as _mie_err:
+    MIE_AVAILABLE = False
+    logging.getLogger(__name__).warning(f"Market Intelligence Engine unavailable: {_mie_err}")
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -217,6 +233,7 @@ class TradingService:
                  retrain_every=50, profit_risk_multiplier=1.5,
                  adx_threshold=18,
                  daily_loss_limit=0.08, max_positions=3,
+                 mie_gate_enabled=False,
                  on_trade=None, on_signal=None, on_performance=None):
 
         self.user_id = user_id
@@ -301,6 +318,33 @@ class TradingService:
 
         # Second-opinion signal engine
         self._signal_engine = SignalEngine() if SIGNAL_ENGINE_AVAILABLE else None
+
+        # ── Market Intelligence Engine ──────────────────────────────────────
+        # Records market state every cycle (unlabeled — outcomes get attached
+        # once the future actually happens), and once enough resolved
+        # observations exist, trains + purged-walk-forward-validates a
+        # conditional-expectancy model per horizon. `mie_gate_enabled=True`
+        # lets a validated MIE reading of DO_NOTHING veto the legacy ML/setup
+        # signal below; it can only ever narrow trading, never force a trade
+        # the legacy pipeline wasn't already about to take, and it starts
+        # silent (no validated model, no observations) until it has earned an
+        # opinion. `mie_last_decision` is kept per-symbol purely for status
+        # reporting / the UI, independent of whether the gate is enabled.
+        self.mie_gate_enabled: bool = bool(mie_gate_enabled)
+        self._mie = None
+        self._mie_store = None
+        self.mie_last_decision: dict = {}     # symbol → TradeDecision
+        self._mie_last_fit: float = 0.0
+        self._mie_fit_interval: float = 6 * 3600     # re-validate every 6h once enough data exists
+        self._mie_min_rows_to_fit: int = 500         # don't even attempt a fit below this many resolved rows
+        self._mie_decision_ids: dict = {}            # symbol → last recorded decision row id (for close_decision)
+        if MIE_AVAILABLE:
+            try:
+                self._mie_store = ObservationStore()
+                self._mie = MarketIntelligenceEngine(config=EngineConfig(), store=self._mie_store)
+            except Exception as e:
+                logger.warning(f"User {self.user_id}: Market Intelligence Engine init failed: {e}")
+                self._mie = None
 
         self.on_trade = on_trade
         self.on_signal = on_signal
@@ -1671,6 +1715,16 @@ class TradingService:
             'day_pnl_pct': round(self._day_pnl / max(self._day_start_balance, 1) * 100, 2),
             'daily_loss_limit': self.daily_loss_limit,
             'max_positions': self.max_positions,
+            # Market Intelligence Engine
+            'mie_available': bool(MIE_AVAILABLE and self._mie is not None),
+            'mie_gate_enabled': self.mie_gate_enabled,
+            'mie_any_validated': bool(self._mie.any_validated) if self._mie is not None else False,
+            'mie_resolved_observations': self._mie_store.count_resolved() if self._mie_store is not None else 0,
+            'mie_decisions': {sym: {
+                'action': d.action, 'quality': d.quality, 'regime': d.regime,
+                'expected_return': round(d.expected_return, 5), 'expectancy_r': round(d.expectancy_r, 4),
+                'historical_sample': d.historical_sample, 'blockers': d.blockers, 'reasons': d.reasons,
+            } for sym, d in self.mie_last_decision.items()},
         }
 
     # ── Trade execution ─────────────────────────────────────────────────────
@@ -2598,6 +2652,60 @@ class TradingService:
             'all_trades': all_trades,
         }
 
+    # ── Market Intelligence Engine ────────────────────────────────────────
+
+    def _mie_cycle(self, symbol: str, df_ind, new_candle: bool):
+        """
+        Record this cycle's market state (unlabeled) into the engine's
+        observation store, resolve any outcomes that have matured since the
+        last new candle, periodically re-fit + re-validate the per-horizon
+        edge models, and return the current TradeDecision for `symbol`.
+
+        Never allowed to raise into the trading loop — a research subsystem
+        misbehaving must not be able to take live trading down with it. On any
+        failure this simply returns None, which reads to callers as "MIE has
+        no opinion right now", the same as its legitimate cold-start state.
+        """
+        if self._mie is None:
+            return None
+        try:
+            decision = self._mie.decide(symbol, df_ind, user_id=self.user_id)
+            self.mie_last_decision[symbol] = decision
+            if new_candle:
+                bar_seconds = self._get_timeframe_minutes() * 60
+                self._mie_store.backfill_outcomes(self.user_id, symbol, df_ind, bar_seconds=bar_seconds)
+                self._maybe_refit_mie(bar_seconds)
+            return decision
+        except Exception as e:
+            logger.debug(f"User {self.user_id}: MIE cycle failed for {symbol}: {e}")
+            return None
+
+    def _maybe_refit_mie(self, bar_seconds: float):
+        """
+        Re-fit + re-validate every horizon's edge model against everything the
+        store has accumulated (pooled across users — see
+        ObservationStore.load_training_frame), on a fixed schedule and only
+        once there's enough resolved history for a fit attempt to mean
+        anything. This is what lets a freshly-started bot go from "no opinion"
+        to "validated" over its first few hours/days of operation without any
+        manual optimizer run.
+        """
+        now = time.time()
+        if now - self._mie_last_fit < self._mie_fit_interval:
+            return
+        if self._mie_store.count_resolved() < self._mie_min_rows_to_fit:
+            return
+        try:
+            training_df = self._mie_store.load_training_frame()
+            if len(training_df) < self._mie_min_rows_to_fit:
+                return
+            summaries = self._mie.fit(training_df, bar_seconds=bar_seconds)
+            self._mie_last_fit = now
+            logger.info(f"User {self.user_id}: MIE re-fit across {len(training_df)} observations — "
+                       f"{ {h: ('validated' if m.validated else m.report.reason) for h, m in self._mie.edge_models.items()} }")
+        except Exception as e:
+            logger.warning(f"User {self.user_id}: MIE re-fit failed: {e}")
+
     # ── Main cycle ───────────────────────────────────────────────────────────
 
     def run_cycle(self):
@@ -2660,6 +2768,24 @@ class TradingService:
                         f"User {self.user_id}: [{symbol}] SETUP fired: {s_name} "
                         f"{'LONG' if s_sig == 1 else 'SHORT'} conf={s_conf:.0%}"
                     )
+
+            # ── Market Intelligence Engine ────────────────────────────────
+            # Runs every cycle regardless of `mie_gate_enabled` so it keeps
+            # accumulating observations and re-validating models even while
+            # silent — otherwise turning the gate on would start it from zero
+            # history at whatever moment someone flips the flag. Only actually
+            # allowed to veto a fresh ENTRY (never an exit/reversal check on an
+            # open position — see simulate_trade/_exit_logic) and only once it
+            # has a validated model to back the opinion up.
+            mie_decision = self._mie_cycle(symbol, df_ind, new_candle)
+            if (self.mie_gate_enabled and mie_decision is not None and signal != 0
+                    and self.positions.get(symbol) is None
+                    and mie_decision.action == MIE_DO_NOTHING and mie_decision.forecast is not None):
+                logger.info(
+                    f"User {self.user_id}: [{symbol}] MIE gate vetoed entry "
+                    f"(quality {mie_decision.quality}/100): "
+                    f"{'; '.join(mie_decision.blockers) or 'no validated positive-EV setup'}")
+                signal, confidence = 0, 0.5
 
             signal_data = {
                 'signal': int(signal),
