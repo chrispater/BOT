@@ -1751,6 +1751,11 @@ class TradingService:
                 'expected_return': round(d.expected_return, 5), 'expectancy_r': round(d.expectancy_r, 4),
                 'historical_sample': d.historical_sample, 'blockers': d.blockers, 'reasons': d.reasons,
             } for sym, d in self.mie_last_decision.items()},
+            # Quality gate (observation/edge-analytics system) — mirrors the
+            # richer /api/edge/report profile but exposed here too so the UI's
+            # 5-second status poll can show armed/disarmed without a second
+            # request on every page.
+            'quality_gate_enabled': self.quality_gate_enabled,
         }
 
     # ── Trade execution ─────────────────────────────────────────────────────
