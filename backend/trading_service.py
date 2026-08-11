@@ -209,6 +209,10 @@ def _decode_y(y_enc):
 
 
 class TradingService:
+    # Minimum trade-quality score required to enter once the gate is armed.
+    # 50 = "no measured edge either way"; we demand evidence above neutral.
+    QUALITY_MIN_SCORE = 55
+
     def __init__(self, user_id: int, api_key=None, api_secret=None, api_password=None,
                  starting_balance=10000, leverage=10, selected_coins=None,
                  risk_per_trade=0.02, stop_loss_pct=0.15, take_profit_pct=0.30,
@@ -217,7 +221,8 @@ class TradingService:
                  retrain_every=50, profit_risk_multiplier=1.5,
                  adx_threshold=18,
                  daily_loss_limit=0.08, max_positions=3,
-                 on_trade=None, on_signal=None, on_performance=None):
+                 on_trade=None, on_signal=None, on_performance=None,
+                 on_observation=None, on_backfill=None, get_pending_obs=None):
 
         self.user_id = user_id
         self.api_key = api_key
@@ -305,6 +310,19 @@ class TradingService:
         self.on_trade = on_trade
         self.on_signal = on_signal
         self.on_performance = on_performance
+        # ── Market Intelligence Engine hooks ──
+        # Observations flow OUT through callbacks (keeps this module importable
+        # without a database); the computed edge profile flows BACK IN as a plain
+        # dict so the quality gate never makes a DB call in the hot path.
+        self.on_observation = on_observation
+        self.on_backfill = on_backfill
+        self.get_pending_obs = get_pending_obs
+        self.edge_profile = {}          # refreshed by the host process
+        self.quality_gate_enabled = False   # off until the profile has real samples
+        self._mkt_ctx_cache = {}        # symbol → (ts, context extras)
+        self._last_oi = {}              # symbol → previous open-interest reading
+        self._btc_ret_5 = 0.0
+        self._last_quality = {}         # symbol → last computed quality score
 
         self._initialize_exchange()
 
@@ -1271,6 +1289,14 @@ class TradingService:
             if btc_df is None or len(btc_df) < 50:
                 return 'sideways'
             close = btc_df['close'].values.astype(float)
+            # Cross-market confirmation input: BTC's own recent 5-bar return.
+            # Cached so per-symbol observations can record whether the traded coin
+            # is moving with the market or against it.
+            try:
+                if len(close) >= 6 and close[-6] > 0:
+                    self._btc_ret_5 = float(close[-1] / close[-6] - 1)
+            except Exception:
+                pass
             ema50 = talib.EMA(close, timeperiod=50)
             if np.isnan(ema50[-1]) or np.isnan(ema50[-10]):
                 return 'sideways'
@@ -1897,7 +1923,8 @@ class TradingService:
             })
             if self.on_trade:
                 self.on_trade(self.user_id, symbol, position['side'], 'close',
-                              position['size'], price, pnl, None, exit_reason)
+                              position['size'], price, pnl, None, exit_reason,
+                              self._close_context(position, price, lev_pct))
             if self.on_performance:
                 self.on_performance(self.user_id, self.balance, self.total_pnl,
                                     self.total_trades, self.winning_trades)
@@ -1909,7 +1936,44 @@ class TradingService:
                 self._sync_live_balance()
             return {'ok': True, 'pnl': pnl, 'pnl_pct': lev_pct, 'price': price}
 
-    def simulate_trade(self, signal, price, confidence, symbol=None, df=None, setup_name=None):
+    def _close_context(self, position, exit_price, lev_pct):
+        """R-multiple accounting for a closed trade.
+
+        R is the risk unit: one R = the configured stop distance in margin terms.
+        Expressing results in R rather than dollars or percent is what makes
+        expectancy comparable across position sizes, leverage settings and coins —
+        it is the unit the whole edge analysis is built on.
+
+        MFE/MAE (maximum favorable/adverse excursion, also in R) record how far
+        the trade ran in each direction while open, which lets us judge the SETUP
+        separately from the EXIT rule that happened to be in force.
+        """
+        risk = max(self.stop_loss_pct, 1e-6)
+        lev = max(1, position.get('leverage', self.leverage))
+        entry = position.get('entry_price') or 0
+        ctx = dict(position.get('entry_ctx') or {})
+        mfe_r = mae_r = None
+        if entry > 0:
+            if position['side'] == 'long':
+                best  = (position.get('high_water_mark', entry) - entry) / entry
+                worst = (position.get('low_water_mark', entry) - entry) / entry
+            else:
+                best  = (entry - position.get('low_water_mark', entry)) / entry
+                worst = (entry - position.get('high_water_mark', entry)) / entry
+            mfe_r = round(best * lev / risk, 4)
+            mae_r = round(worst * lev / risk, 4)
+        ctx.update({
+            'r_multiple': round((lev_pct / 100.0) / risk, 4),
+            'mfe_r': mfe_r, 'mae_r': mae_r,
+            'leverage': lev,
+            'hold_secs': int(time.time() - position.get('opened_at', time.time())),
+            'quality_score': position.get('quality_score'),
+            'setup_name': position.get('setup_name'),
+        })
+        return ctx
+
+    def simulate_trade(self, signal, price, confidence, symbol=None, df=None, setup_name=None,
+                       obs_ctx=None, quality=None):
         symbol = symbol or self.get_current_symbol()
         current_time = time.time()
         # Cooldown gates ENTRIES only — exit logic must run on every cycle so an
@@ -1959,6 +2023,9 @@ class TradingService:
                 'symbol': symbol, 'margin': margin, 'leverage': dyn_lev,
                 'high_water_mark': price, 'low_water_mark': price,
                 'opened_at': current_time,
+                # Market state at entry — this is what the post-mortem slices on.
+                'entry_ctx': obs_ctx or {}, 'setup_name': setup_name,
+                'quality_score': quality,
             }
             self.entry_price = price
             self.last_trade_times[symbol] = current_time
@@ -1972,17 +2039,18 @@ class TradingService:
             }
             self.trades_history.append(trade)
             if self.on_trade:
-                self.on_trade(self.user_id, symbol, side, 'open', size, price, None, confidence, None)
+                self.on_trade(self.user_id, symbol, side, 'open', size, price, None, confidence, None,
+                              obs_ctx or {})
             logger.info(
                 f"User {self.user_id}: [SIM] Open {side.upper()} {symbol} @ ${price:.2f} | "
                 f"Margin ${margin:.2f} · {dyn_lev}x lev [{conf_tier}]"
             )
 
         elif position is not None:
-            if position['side'] == 'long':
-                position['high_water_mark'] = max(position['high_water_mark'], price)
-            else:
-                position['low_water_mark'] = min(position['low_water_mark'], price)
+            # Track BOTH extremes regardless of side — the trailing stop reads the
+            # favorable one, while MAE (adverse excursion) needs the other.
+            position['high_water_mark'] = max(position['high_water_mark'], price)
+            position['low_water_mark'] = min(position['low_water_mark'], price)
 
             should_exit, exit_reason = self._exit_logic(position, price, signal, confidence)
 
@@ -2014,7 +2082,8 @@ class TradingService:
                 })
                 if self.on_trade:
                     self.on_trade(self.user_id, symbol, position['side'], 'close',
-                                  position['size'], price, pnl, None, exit_reason)
+                                  position['size'], price, pnl, None, exit_reason,
+                                  self._close_context(position, price, lev_pct))
                 if self.on_performance:
                     self.on_performance(self.user_id, self.balance, self.total_pnl,
                                         self.total_trades, self.winning_trades)
@@ -2110,7 +2179,8 @@ class TradingService:
                 logger.error(f"User {self.user_id}: [{symbol}] Market fallback FAILED: {e2}")
                 return None
 
-    def execute_live_trade(self, signal, price, confidence, symbol=None, df=None, setup_name=None):
+    def execute_live_trade(self, signal, price, confidence, symbol=None, df=None, setup_name=None,
+                           obs_ctx=None, quality=None):
         symbol = symbol or self.get_current_symbol()
         current_time = time.time()
         # Cooldown gates ENTRIES only — an open position must have its exit logic
@@ -2202,6 +2272,9 @@ class TradingService:
                     'order_id': order.get('id'),
                     'high_water_mark': fill_price, 'low_water_mark': fill_price,
                     'opened_at': current_time, 'maker_entry': maker_entry,
+                    # Market state at entry — what the post-mortem slices on.
+                    'entry_ctx': obs_ctx or {}, 'setup_name': setup_name,
+                    'quality_score': quality,
                 }
                 price, size = fill_price, filled_size  # for history/log below
                 self.entry_price = price
@@ -2215,7 +2288,8 @@ class TradingService:
                     'regime': self.market_regime, 'time': datetime.now().isoformat(),
                 })
                 if self.on_trade:
-                    self.on_trade(self.user_id, symbol, pos_side, 'open', size, price, None, confidence, None)
+                    self.on_trade(self.user_id, symbol, pos_side, 'open', size, price, None, confidence, None,
+                                  obs_ctx or {})
                 logger.info(
                     f"User {self.user_id}: [LIVE] Open {pos_side.upper()} {symbol} @ ${price:.2f} | "
                     f"Margin ${margin:.2f} · {dyn_lev}x lev [{conf_tier}] · notional ${notional:.2f}"
@@ -2232,10 +2306,10 @@ class TradingService:
                 except Exception:
                     pass  # fall back to OHLCV close price
 
-                if position['side'] == 'long':
-                    position['high_water_mark'] = max(position['high_water_mark'], price)
-                else:
-                    position['low_water_mark'] = min(position['low_water_mark'], price)
+                # Track BOTH extremes regardless of side — the trailing stop reads
+                # the favorable one, MAE (adverse excursion) needs the other.
+                position['high_water_mark'] = max(position['high_water_mark'], price)
+                position['low_water_mark'] = min(position['low_water_mark'], price)
 
                 should_exit, exit_reason = self._exit_logic(position, price, signal, confidence)
 
@@ -2283,7 +2357,8 @@ class TradingService:
                     })
                     if self.on_trade:
                         self.on_trade(self.user_id, pos_sym, position['side'], 'close',
-                                      position['size'], price, pnl, None, exit_reason)
+                                      position['size'], price, pnl, None, exit_reason,
+                                      self._close_context(position, price, lev_pct))
                     if self.on_performance:
                         self.on_performance(self.user_id, self.balance, self.total_pnl,
                                             self.total_trades, self.winning_trades)
@@ -2598,6 +2673,211 @@ class TradingService:
             'all_trades': all_trades,
         }
 
+    # ── Market Intelligence Engine ───────────────────────────────────────────
+
+    def _volatility_percentile(self, df) -> float:
+        """Where current realized volatility sits within its own recent history
+        (0 = calmest in 200 bars, 1 = most volatile). Regime conditioning needs a
+        RELATIVE measure — absolute ATR means nothing across coins or eras."""
+        try:
+            v = df['volatility'].dropna().tail(200)
+            if len(v) < 30:
+                return 0.5
+            cur = float(v.iloc[-1])
+            return float((v < cur).sum()) / len(v)
+        except Exception:
+            return 0.5
+
+    def _collect_market_context(self, symbol: str, df) -> dict:
+        """Order-flow and derivatives-positioning snapshot for one symbol.
+
+        This is the honest, host-appropriate subset of what a professional desk
+        watches: book imbalance and spread from a depth snapshot, plus funding
+        and open-interest change. It is NOT tick-level tape — reconstructing real
+        order flow needs a persistent websocket feed and tick storage, which this
+        host cannot run. Every field is best-effort and individually guarded; a
+        market-data hiccup must never interrupt trading.
+
+        Cached per candle so repeated intra-candle cycles don't re-poll.
+        """
+        tf_s = self._get_timeframe_minutes() * 60
+        now = time.time()
+        cached = self._mkt_ctx_cache.get(symbol)
+        if cached and (now - cached[0]) < tf_s * 0.5:
+            return cached[1]
+
+        ctx = {'spread_bps': None, 'book_imbalance': None,
+               'funding_rate': None, 'oi_change': None}
+        try:
+            ob = self.exchange.fetch_order_book(symbol, limit=20)
+            bids, asks = ob.get('bids') or [], ob.get('asks') or []
+            if bids and asks:
+                bid, ask = float(bids[0][0]), float(asks[0][0])
+                if bid > 0:
+                    ctx['spread_bps'] = round((ask - bid) / bid * 10000, 4)
+                bid_depth = sum(float(b[1]) for b in bids[:10])
+                ask_depth = sum(float(a[1]) for a in asks[:10])
+                tot = bid_depth + ask_depth
+                if tot > 0:
+                    # 0.5 = balanced, >0.5 = bid-heavy (buy pressure)
+                    ctx['book_imbalance'] = round(bid_depth / tot, 4)
+        except Exception:
+            pass
+        try:
+            fr = self.exchange.fetch_funding_rate(symbol)
+            v = fr.get('fundingRate')
+            if v is not None:
+                ctx['funding_rate'] = float(v)
+        except Exception:
+            pass
+        try:
+            oi = self.exchange.fetch_open_interest(symbol)
+            val = oi.get('openInterestAmount') or oi.get('openInterestValue')
+            if val:
+                val = float(val)
+                prev = self._last_oi.get(symbol)
+                if prev and prev > 0:
+                    ctx['oi_change'] = round((val - prev) / prev, 6)
+                self._last_oi[symbol] = val
+        except Exception:
+            pass
+
+        self._mkt_ctx_cache[symbol] = (now, ctx)
+        return ctx
+
+    def _observation_context(self, symbol, df, signal, confidence, setup_name, traded):
+        """Assemble the full market-state context for one observation/entry."""
+        ctx = dict(self._collect_market_context(symbol, df))
+        try:
+            last_ret = float(df['returns'].iloc[-1]) if 'returns' in df else 0.0
+        except Exception:
+            last_ret = 0.0
+        btc_agree = None
+        if abs(self._btc_ret_5) > 1e-9 and abs(last_ret) > 1e-9:
+            btc_agree = (self._btc_ret_5 > 0) == (last_ret > 0)
+        ctx.update({
+            'regime': self.market_regime,
+            'vol_pct': round(self._volatility_percentile(df), 4),
+            'btc_ret_5': round(self._btc_ret_5, 6),
+            'btc_agree': btc_agree,
+            'hour_utc': datetime.utcnow().hour,
+            'ml_signal': int(signal), 'ml_conf': round(float(confidence), 4),
+            'setup_name': setup_name, 'traded': traded,
+        })
+        return ctx
+
+    def _record_observation(self, symbol, df, signal, confidence, setup_name, traded, ctx=None):
+        """Record market state for this candle. Outcomes are backfilled later.
+        Pass `ctx` to record the exact context the quality gate scored, so the
+        stored row reflects the decision that was actually made."""
+        if not self.on_observation:
+            return None
+        try:
+            X, _ = self.prepare_features(df)
+            if X.empty:
+                return None
+            feats = {k: (None if pd.isna(v) else round(float(v), 6))
+                     for k, v in X.iloc[-1].items()}
+            if ctx is None:
+                ctx = self._observation_context(symbol, df, signal, confidence, setup_name, traded)
+            ctx = dict(ctx)
+            ctx['traded'] = traded
+            self.on_observation(self.user_id, symbol, df.index[-1],
+                                float(df['close'].iloc[-1]), self.timeframe, feats, ctx)
+            return ctx
+        except Exception as e:
+            logger.debug(f"User {self.user_id}: observation record failed: {e}")
+            return None
+
+    def _backfill_observations(self, symbol, df):
+        """Fill forward outcomes for observations old enough to have resolved.
+
+        Computes returns at 1/3/5/15 candles plus maximum favorable and adverse
+        excursion over the 15-candle window, reading straight from the OHLCV
+        already in memory — no extra API calls. MFE/MAE are what let us judge a
+        setup independently of whatever exit rule happened to be in force.
+        """
+        if not (self.get_pending_obs and self.on_backfill):
+            return
+        try:
+            pending = self.get_pending_obs(self.user_id, symbol, 200)
+            if not pending:
+                return
+            idx = df.index
+            rows = []
+            for obs in pending:
+                ts = obs['candle_ts']
+                try:
+                    pos = idx.get_loc(pd.Timestamp(ts))
+                except Exception:
+                    continue  # candle outside the loaded window — retry later
+                if not isinstance(pos, int):
+                    continue
+                if pos + 15 >= len(df):
+                    continue  # not enough forward candles yet
+                p0 = float(df['close'].iloc[pos])
+                if p0 <= 0:
+                    continue
+                fwd = df.iloc[pos + 1: pos + 16]
+                r = lambda n: round(float(df['close'].iloc[pos + n]) / p0 - 1, 8)
+                rows.append((
+                    r(1), r(3), r(5), r(15),
+                    round(float(fwd['high'].max()) / p0 - 1, 8),   # MFE
+                    round(float(fwd['low'].min()) / p0 - 1, 8),    # MAE
+                    obs['id'],
+                ))
+            if rows:
+                n = self.on_backfill(rows)
+                logger.debug(f"User {self.user_id}: [{symbol}] backfilled {n} observation outcomes")
+        except Exception as e:
+            logger.debug(f"User {self.user_id}: observation backfill failed: {e}")
+
+    def _trade_quality(self, symbol, ctx):
+        """
+        Score this opportunity 0-100 from the historical conditional edge profile,
+        and decide whether we have measured evidence of an advantage right now.
+
+        The profile is computed out-of-band (see edge_analytics) and holds, per
+        condition bucket, the LOWER CONFIDENCE BOUND on expectancy in R together
+        with the sample size behind it. Using the lower bound rather than the
+        point estimate is the guard against multiple-testing: slice trades by
+        regime x volatility x setup x hour and some bucket will look brilliant by
+        luck, but luck does not survive a confidence bound built on its own
+        sample size.
+
+        Returns (score, reason). NO TRADE is the default — an unknown bucket does
+        not get the benefit of the doubt once the gate is armed.
+        """
+        prof = self.edge_profile or {}
+        buckets = prof.get('buckets') or {}
+        if not buckets:
+            return 50, 'no profile yet'
+
+        vol_band = 'high' if (ctx.get('vol_pct') or 0.5) >= 0.6 else (
+                   'low' if (ctx.get('vol_pct') or 0.5) <= 0.4 else 'mid')
+        keys = [
+            f"setup={ctx.get('setup_name') or 'ml'}",
+            f"regime={ctx.get('regime')}",
+            f"vol={vol_band}",
+            f"regime={ctx.get('regime')}|vol={vol_band}",
+        ]
+        if ctx.get('btc_agree') is not None:
+            keys.append(f"btc_agree={bool(ctx.get('btc_agree'))}")
+
+        hits = [buckets[k] for k in keys if k in buckets
+                and buckets[k].get('n', 0) >= prof.get('min_sample', 25)]
+        if not hits:
+            return 45, 'no comparable history'
+
+        # Worst applicable bucket governs — a condition known to be unprofitable
+        # is not rescued by a different slice that happens to look fine.
+        lb = min(float(h['expectancy_lb']) for h in hits)
+        n = min(int(h['n']) for h in hits)
+        score = int(max(0, min(100, 50 + lb * 100)))
+        if lb <= 0:
+            return score, f'negative expectancy lower-bound {lb:+.3f}R (n={n})'
+        return score, f'expectancy lower-bound {lb:+.3f}R (n={n})'
+
     # ── Main cycle ───────────────────────────────────────────────────────────
 
     def run_cycle(self):
@@ -2680,11 +2960,50 @@ class TradingService:
                 self.on_signal(self.user_id, signal, confidence, price,
                                signal_data['rsi'], signal_data['macd'], signal_data['adx'])
 
+            # ── Market Intelligence: score, gate, then observe ────────────────
+            # Order matters. The quality gate runs BEFORE the observation is
+            # written so the `traded` flag records what actually happened rather
+            # than what we intended — a vetoed candle mislabelled as traded would
+            # corrupt the very decisions we most want to learn from.
+            obs_ctx = self._observation_context(
+                symbol, df_ind, signal, confidence, setup_name, False)
+
+            quality, q_reason = self._trade_quality(symbol, obs_ctx)
+            obs_ctx['quality'] = quality
+            self._last_quality[symbol] = {'score': quality, 'reason': q_reason}
+            signal_data['quality'] = quality
+            signal_data['quality_reason'] = q_reason
+
+            # NO TRADE is the default state: without measured evidence of an
+            # advantage under these conditions, standing down is the correct
+            # outcome, not a missed opportunity.
+            if (self.quality_gate_enabled and signal != 0
+                    and self.positions.get(symbol) is None
+                    and quality < self.QUALITY_MIN_SCORE):
+                logger.info(
+                    f"User {self.user_id}: [{symbol}] NO TRADE — quality {quality}/100 "
+                    f"< {self.QUALITY_MIN_SCORE} ({q_reason})"
+                )
+                signal = 0
+
+            # Record every candle, traded or not. Observations restricted to
+            # entries would be selected on the decision under evaluation; the
+            # skipped candles are the control group that makes the analysis valid.
+            if new_candle:
+                will_trade = (signal != 0 and self.positions.get(symbol) is None
+                              and (confidence >= self.min_confidence or setup_name))
+                self._record_observation(
+                    symbol, df_ind, signal, confidence, setup_name,
+                    bool(will_trade), ctx=obs_ctx)
+                self._backfill_observations(symbol, df_ind)
+
             with self._trade_lock:
                 if self.simulation_mode:
-                    self.simulate_trade(signal, price, confidence, symbol=symbol, df=df_ind, setup_name=setup_name)
+                    self.simulate_trade(signal, price, confidence, symbol=symbol, df=df_ind,
+                                        setup_name=setup_name, obs_ctx=obs_ctx, quality=quality)
                 else:
-                    self.execute_live_trade(signal, price, confidence, symbol=symbol, df=df_ind, setup_name=setup_name)
+                    self.execute_live_trade(signal, price, confidence, symbol=symbol, df=df_ind,
+                                            setup_name=setup_name, obs_ctx=obs_ctx, quality=quality)
 
             results.append(signal_data)
 

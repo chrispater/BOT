@@ -32,7 +32,12 @@ from .database import (
     try_start_optimization_job, save_optimization_run, get_optimization_runs,
     get_optimization_run, get_latest_optimization_run,
     get_user_permissions, get_pending_users, get_all_users,
-    update_user_status, update_user_permissions, make_user_admin
+    update_user_status, update_user_permissions, make_user_admin,
+    record_observation, get_pending_observations, fill_observation_outcomes,
+    get_observations_for_analysis, get_closed_trades_with_context
+)
+from .edge_analytics import (
+    build_edge_profile, format_postmortem, cost_per_trade_r
 )
 from .auth import (
     get_password_hash, verify_password, create_access_token,
@@ -384,11 +389,27 @@ async def start_bot(user = Depends(get_current_user)):
     else:
         restored_balance = db_balance    # normal restart — preserve compound gains
 
-    def on_trade(uid, symbol, side, trade_type, size, price, pnl, confidence, reason):
+    def on_trade(uid, symbol, side, trade_type, size, price, pnl, confidence, reason, context=None):
         try:
-            save_trade(uid, symbol, side, trade_type, size, price, pnl, confidence, reason)
+            save_trade(uid, symbol, side, trade_type, size, price, pnl, confidence, reason, context)
         except Exception as e:
             print(f"Failed to save trade: {e}")
+
+    # ── Market Intelligence Engine plumbing ──
+    # Observations are recorded every candle whether or not we trade; forward
+    # outcomes are backfilled from OHLCV already in memory (no extra API calls).
+    def on_observation(uid, symbol, candle_ts, price, timeframe, features, context):
+        try:
+            record_observation(uid, symbol, candle_ts, price, timeframe, features, context)
+        except Exception as e:
+            print(f"Failed to record observation: {e}")
+
+    def on_backfill(rows):
+        try:
+            return fill_observation_outcomes(rows)
+        except Exception as e:
+            print(f"Failed to backfill observations: {e}")
+            return 0
 
     def on_signal(uid, signal, confidence, price, rsi, macd, adx):
         try:
@@ -426,7 +447,10 @@ async def start_bot(user = Depends(get_current_user)):
         max_positions=user_settings.get('max_positions', 3),
         on_trade=on_trade,
         on_signal=on_signal,
-        on_performance=on_performance
+        on_performance=on_performance,
+        on_observation=on_observation,
+        on_backfill=on_backfill,
+        get_pending_obs=get_pending_observations,
     )
     bot.running = True
     # Restore live balance — preserves compound growth across restarts.
@@ -1053,6 +1077,33 @@ async def apply_optimizer_to_bot(run_id: int, user = Depends(get_current_user)):
         "config": best_config,
     }
 
+@app.get("/api/edge/report")
+async def edge_report(days: int = 120, user = Depends(get_current_user)):
+    """The post-mortem: which conditions actually carried the edge.
+
+    Returns both a machine-readable profile and a plain-language summary. Every
+    bucket carries its sample size and a 95% lower bound on expectancy — read
+    the bound, not the mean, since the mean of a small slice is mostly noise.
+    """
+    user_id = user['user_id']
+    trades = get_closed_trades_with_context(user_id, since_days=days)
+    obs = get_observations_for_analysis(user_id, since_days=min(days, 30), limit=40000)
+    profile = build_edge_profile(trades, obs, min_sample=25)
+
+    bot = user_bots.get(user_id)
+    settings = get_user_settings(user_id)
+    sl = float(bot.stop_loss_pct if bot else settings.get('stop_loss_pct', 0.15) or 0.15)
+    lev = int(bot.leverage if bot else settings.get('leverage', 10) or 10)
+    cost_r = cost_per_trade_r(sl, lev)
+
+    return {
+        'profile': profile,
+        'cost_r': cost_r,
+        'observations_recorded': profile.get('observation_n', len(obs)),
+        'gate_armed': bool(bot.quality_gate_enabled) if bot else False,
+        'summary': format_postmortem(profile, cost_r=cost_r),
+    }
+
 @app.get("/api/user/permissions")
 async def get_my_permissions(user = Depends(get_current_user)):
     user_id = user['user_id']
@@ -1147,15 +1198,47 @@ def _launch_auto_optimize(user_id: int, bot):
         bot._auto_opt_in_progress = False
         print(f"[AUTO-OPT] User {user_id}: failed to launch self-tune: {e}", flush=True)
 
+def refresh_edge_profile(user_id: int, bot) -> dict:
+    """Recompute the conditional edge profile and hand it to the bot.
+
+    Kept out of the trading hot path: the bot consults a plain dict, never the
+    database, when scoring an opportunity. The quality gate is only ARMED once
+    enough qualified buckets exist to be worth obeying — until then the bot
+    trades as before while the evidence accumulates.
+    """
+    try:
+        trades = get_closed_trades_with_context(user_id, since_days=120)
+        obs = get_observations_for_analysis(user_id, since_days=30, limit=40000)
+        profile = build_edge_profile(trades, obs, min_sample=25)
+        profile['cost_r'] = cost_per_trade_r(bot.stop_loss_pct, bot.leverage)
+        bot.edge_profile = profile
+        qualified = sum(1 for b in profile.get('buckets', {}).values() if b.get('qualified'))
+        was_armed = bot.quality_gate_enabled
+        bot.quality_gate_enabled = qualified >= 3 and profile.get('n', 0) >= 30
+        if bot.quality_gate_enabled and not was_armed:
+            print(f"[EDGE] User {user_id}: quality gate ARMED — "
+                  f"{profile.get('n')} trades, {qualified} qualified buckets", flush=True)
+        return profile
+    except Exception as e:
+        print(f"[EDGE] User {user_id}: profile refresh failed: {e}", flush=True)
+        return {}
+
+
 async def run_bot_loop(user_id: int):
     consecutive_errors = 0
     MAX_CONSECUTIVE_ERRORS = 10
+    cycles = 0
 
     while user_id in user_bots and user_bots[user_id].running:
         try:
             bot = user_bots[user_id]
             signal_data = bot.run_cycle()
             consecutive_errors = 0  # reset on success
+
+            # Refresh the edge profile on startup and every ~50 cycles.
+            if cycles % 50 == 0:
+                refresh_edge_profile(user_id, bot)
+            cycles += 1
 
             if signal_data and user_id in user_connections:
                 status = bot.get_status()
