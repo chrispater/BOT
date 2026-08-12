@@ -203,3 +203,4 @@
 {"ts_utc": "2026-08-12T15:18:00Z", "event": "cycle_summary", "equity": 241.51, "buying_power": 1.01, "open_positions": ["USO", "UUP", "V", "SPY"], "regime": "bull", "actions": 0}
 {"ts_utc": "2026-08-12T17:04:00Z", "event": "cycle_summary", "equity": 241.21, "buying_power": 1.01, "open_positions": ["USO", "UUP", "V", "SPY"], "regime": "bull", "actions": 0, "note": "2 duplicate scheduled triggers arrived together; ran as a single cycle"}
 {"ts_utc": "2026-08-12T17:36:00Z", "event": "cycle_summary", "equity": 241.51, "buying_power": 1.01, "open_positions": ["USO", "UUP", "V", "SPY"], "regime": "bull", "actions": 0}
+{"ts_utc": "2026-08-12T18:36:00Z", "event": "cycle_summary", "equity": 242.27, "buying_power": 1.01, "open_positions": ["USO", "UUP", "V", "SPY"], "regime": "bull", "actions": 0, "note": "SPY signal_reversal confirmed (streak 2) but deferred by same-day cash-account guard"}
