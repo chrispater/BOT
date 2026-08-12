@@ -10,16 +10,16 @@
       "entry_confidence": 0.997,
       "high_water_mark": 127.59,
       "be_armed": true,
-      "cycles_held": 11,
+      "cycles_held": 12,
       "reversal_streak": 0
     },
     "UUP": {
       "entry_date_et": "2026-08-10",
       "entry_reason": "bull_divergence+shakeout_spring",
       "entry_confidence": 0.91,
-      "high_water_mark": 28.1599,
+      "high_water_mark": 28.1601,
       "be_armed": false,
-      "cycles_held": 9,
+      "cycles_held": 10,
       "reversal_streak": 0
     },
     "V": {
@@ -28,7 +28,7 @@
       "entry_confidence": 0.991,
       "high_water_mark": 363.98,
       "be_armed": false,
-      "cycles_held": 2,
+      "cycles_held": 3,
       "reversal_streak": 0
     },
     "SPY": {
@@ -37,9 +37,9 @@
       "entry_confidence": 0.996,
       "high_water_mark": 772.9199,
       "be_armed": false,
-      "cycles_held": 0,
+      "cycles_held": 1,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-08-12T13:42:51Z"
+  "last_run_utc": "2026-08-12T15:18:00Z"
 }
