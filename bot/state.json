@@ -1,16 +1,16 @@
 {
-  "date_et": "2026-08-11",
-  "start_of_day_equity": 401.73945938,
-  "peak_equity": 401.75769589,
+  "date_et": "2026-08-12",
+  "start_of_day_equity": 242.7435211646,
+  "peak_equity": 242.7435211646,
   "halted_today": false,
   "positions": {
     "USO": {
       "entry_date_et": "2026-08-07",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.997,
-      "high_water_mark": 127.03,
+      "high_water_mark": 127.59,
       "be_armed": true,
-      "cycles_held": 10,
+      "cycles_held": 11,
       "reversal_streak": 0
     },
     "UUP": {
@@ -19,7 +19,7 @@
       "entry_confidence": 0.91,
       "high_water_mark": 28.1599,
       "be_armed": false,
-      "cycles_held": 8,
+      "cycles_held": 9,
       "reversal_streak": 0
     },
     "V": {
@@ -28,9 +28,18 @@
       "entry_confidence": 0.991,
       "high_water_mark": 363.98,
       "be_armed": false,
-      "cycles_held": 1,
+      "cycles_held": 2,
+      "reversal_streak": 0
+    },
+    "SPY": {
+      "entry_date_et": "2026-08-12",
+      "entry_reason": "ml_ensemble",
+      "entry_confidence": 0.996,
+      "high_water_mark": 772.9199,
+      "be_armed": false,
+      "cycles_held": 0,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-08-11T17:38:30Z"
+  "last_run_utc": "2026-08-12T13:42:51Z"
 }
