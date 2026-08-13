@@ -10,7 +10,7 @@
       "entry_confidence": 0.997,
       "high_water_mark": 127.59,
       "be_armed": true,
-      "cycles_held": 16,
+      "cycles_held": 17,
       "reversal_streak": 0
     },
     "V": {
@@ -19,7 +19,7 @@
       "entry_confidence": 0.991,
       "high_water_mark": 363.98,
       "be_armed": false,
-      "cycles_held": 7,
+      "cycles_held": 8,
       "reversal_streak": 0
     },
     "XRPR": {
@@ -28,16 +28,16 @@
       "entry_confidence": 0.989,
       "high_water_mark": 8.24,
       "be_armed": false,
-      "cycles_held": 0,
+      "cycles_held": 1,
       "reversal_streak": 0
     },
     "WMT": {
       "entry_date_et": "2026-08-13",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.969,
-      "high_water_mark": 115.8742,
+      "high_water_mark": 116.02,
       "be_armed": false,
-      "cycles_held": 0,
+      "cycles_held": 1,
       "reversal_streak": 0
     },
     "MSTR": {
@@ -46,7 +46,7 @@
       "entry_confidence": 0.957,
       "high_water_mark": 98.5899,
       "be_armed": false,
-      "cycles_held": 0,
+      "cycles_held": 1,
       "reversal_streak": 0
     },
     "META": {
@@ -55,9 +55,9 @@
       "entry_confidence": 0.943,
       "high_water_mark": 589.62,
       "be_armed": false,
-      "cycles_held": 0,
+      "cycles_held": 1,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-08-13T14:44:45Z"
+  "last_run_utc": "2026-08-13T14:54:00Z"
 }
