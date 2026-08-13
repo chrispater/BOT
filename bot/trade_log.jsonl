@@ -213,3 +213,4 @@
 {"ts_utc": "2026-08-13T14:44:45Z", "event": "buy", "symbol": "META", "dollar_amount": "20.47", "price_ref": 589.62, "reason": "ml_ensemble", "confidence": 0.943, "ref_id": "d4a7f0c3-5e1b-4d8a-ac4f-9b6e3d1a8f05", "order_id": "6a7dd85d-7ac0-49ea-88a8-92003ce6cfe0", "order_state": "filled"}
 {"ts_utc": "2026-08-13T14:44:45Z", "event": "cycle_summary", "equity": 239.74, "buying_power": 1.01, "open_positions": ["USO", "V", "XRPR", "WMT", "MSTR", "META"], "regime": "bull", "actions": 5, "note": "daily rollover for 2026-08-13; start_of_day_equity 240.11 (bot-tracked, excludes QMCO)"}
 {"ts_utc": "2026-08-13T14:54:00Z", "event": "cycle_summary", "equity": 239.08, "buying_power": 1.01, "open_positions": ["USO", "V", "XRPR", "WMT", "MSTR", "META"], "regime": "bull", "actions": 0}
+{"ts_utc": "2026-08-13T15:46:00Z", "event": "cycle_summary", "equity": 239.23, "buying_power": 1.01, "open_positions": ["USO", "V", "XRPR", "WMT", "MSTR", "META"], "regime": "bull", "actions": 0}
