@@ -357,7 +357,8 @@ def run(snapshot: dict) -> dict:
             decisions['diagnostics']['symbols'][symbol] = {
                 'signal': signal, 'confidence': round(confidence, 3),
                 'ml_signal': ml_signal, 'ml_conf': round(ml_conf, 3),
-                'ml_trained': ml.trained, 'se_signal': se_signal,
+                'ml_trained': ml.trained, 'ml_validated': ml.validated,
+                'ml_validation': ml.validation_summary, 'se_signal': se_signal,
                 'setup': setup_name, 'price': signals[symbol]['price'],
                 'reasons': se_reasons[:4]}
         except Exception as e:
