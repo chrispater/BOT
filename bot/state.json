@@ -1,6 +1,6 @@
 {
-  "date_et": "2026-08-12",
-  "start_of_day_equity": 242.7435211646,
+  "date_et": "2026-08-13",
+  "start_of_day_equity": 240.10712339350002,
   "peak_equity": 242.7435211646,
   "halted_today": false,
   "positions": {
@@ -10,7 +10,7 @@
       "entry_confidence": 0.997,
       "high_water_mark": 127.59,
       "be_armed": true,
-      "cycles_held": 15,
+      "cycles_held": 16,
       "reversal_streak": 0
     },
     "V": {
@@ -19,18 +19,45 @@
       "entry_confidence": 0.991,
       "high_water_mark": 363.98,
       "be_armed": false,
-      "cycles_held": 6,
+      "cycles_held": 7,
       "reversal_streak": 0
     },
-    "SPY": {
-      "entry_date_et": "2026-08-12",
+    "XRPR": {
+      "entry_date_et": "2026-08-13",
       "entry_reason": "ml_ensemble",
-      "entry_confidence": 0.996,
-      "high_water_mark": 772.9199,
+      "entry_confidence": 0.989,
+      "high_water_mark": 8.24,
       "be_armed": false,
-      "cycles_held": 4,
-      "reversal_streak": 2
+      "cycles_held": 0,
+      "reversal_streak": 0
+    },
+    "WMT": {
+      "entry_date_et": "2026-08-13",
+      "entry_reason": "ml_ensemble",
+      "entry_confidence": 0.969,
+      "high_water_mark": 115.8742,
+      "be_armed": false,
+      "cycles_held": 0,
+      "reversal_streak": 0
+    },
+    "MSTR": {
+      "entry_date_et": "2026-08-13",
+      "entry_reason": "ml_ensemble",
+      "entry_confidence": 0.957,
+      "high_water_mark": 98.5899,
+      "be_armed": false,
+      "cycles_held": 0,
+      "reversal_streak": 0
+    },
+    "META": {
+      "entry_date_et": "2026-08-13",
+      "entry_reason": "ml_ensemble",
+      "entry_confidence": 0.943,
+      "high_water_mark": 589.62,
+      "be_armed": false,
+      "cycles_held": 0,
+      "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-08-12T19:38:28Z"
+  "last_run_utc": "2026-08-13T14:44:45Z"
 }
