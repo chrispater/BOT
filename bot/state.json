@@ -1,44 +1,26 @@
 {
-  "date_et": "2026-08-13",
-  "start_of_day_equity": 240.10712339350002,
+  "date_et": "2026-08-14",
+  "start_of_day_equity": 237.172467785,
   "peak_equity": 242.7435211646,
   "halted_today": false,
   "positions": {
-    "USO": {
-      "entry_date_et": "2026-08-07",
-      "entry_reason": "ml_ensemble",
-      "entry_confidence": 0.997,
-      "high_water_mark": 127.59,
-      "be_armed": true,
-      "cycles_held": 22,
-      "reversal_streak": 0
-    },
-    "V": {
-      "entry_date_et": "2026-08-11",
-      "entry_reason": "ml_ensemble",
-      "entry_confidence": 0.991,
-      "high_water_mark": 363.98,
-      "be_armed": false,
-      "cycles_held": 13,
-      "reversal_streak": 0
-    },
     "XRPR": {
       "entry_date_et": "2026-08-13",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.989,
       "high_water_mark": 8.24,
       "be_armed": false,
-      "cycles_held": 6,
+      "cycles_held": 7,
       "reversal_streak": 0
     },
-    "WMT": {
-      "entry_date_et": "2026-08-13",
+    "USO": {
+      "entry_date_et": "2026-08-07",
       "entry_reason": "ml_ensemble",
-      "entry_confidence": 0.969,
-      "high_water_mark": 116.02,
-      "be_armed": false,
-      "cycles_held": 6,
-      "reversal_streak": 2
+      "entry_confidence": 0.997,
+      "high_water_mark": 127.59,
+      "be_armed": true,
+      "cycles_held": 23,
+      "reversal_streak": 0
     },
     "MSTR": {
       "entry_date_et": "2026-08-13",
@@ -46,18 +28,18 @@
       "entry_confidence": 0.957,
       "high_water_mark": 98.5899,
       "be_armed": false,
-      "cycles_held": 6,
+      "cycles_held": 7,
       "reversal_streak": 0
     },
     "META": {
       "entry_date_et": "2026-08-13",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.943,
-      "high_water_mark": 592.81,
+      "high_water_mark": 594.73,
       "be_armed": false,
-      "cycles_held": 6,
-      "reversal_streak": 4
+      "cycles_held": 7,
+      "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-08-13T19:37:00Z"
+  "last_run_utc": "2026-08-14T14:44:00Z"
 }
