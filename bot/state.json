@@ -10,7 +10,7 @@
       "entry_confidence": 0.989,
       "high_water_mark": 8.24,
       "be_armed": false,
-      "cycles_held": 8,
+      "cycles_held": 9,
       "reversal_streak": 0
     },
     "USO": {
@@ -19,7 +19,7 @@
       "entry_confidence": 0.997,
       "high_water_mark": 127.59,
       "be_armed": true,
-      "cycles_held": 24,
+      "cycles_held": 25,
       "reversal_streak": 0
     },
     "MSTR": {
@@ -28,7 +28,7 @@
       "entry_confidence": 0.957,
       "high_water_mark": 98.5899,
       "be_armed": false,
-      "cycles_held": 8,
+      "cycles_held": 9,
       "reversal_streak": 0
     },
     "META": {
@@ -37,7 +37,7 @@
       "entry_confidence": 0.943,
       "high_water_mark": 594.73,
       "be_armed": false,
-      "cycles_held": 8,
+      "cycles_held": 9,
       "reversal_streak": 0
     },
     "COIN": {
@@ -46,9 +46,9 @@
       "entry_confidence": 0.845,
       "high_water_mark": 151.3699,
       "be_armed": false,
-      "cycles_held": 0,
+      "cycles_held": 1,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-08-14T17:24:00Z"
+  "last_run_utc": "2026-08-14T17:36:00Z"
 }
