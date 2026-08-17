@@ -10,7 +10,7 @@
       "entry_confidence": 0.989,
       "high_water_mark": 8.24,
       "be_armed": false,
-      "cycles_held": 11,
+      "cycles_held": 12,
       "reversal_streak": 0
     },
     "USO": {
@@ -19,7 +19,7 @@
       "entry_confidence": 0.997,
       "high_water_mark": 127.59,
       "be_armed": true,
-      "cycles_held": 27,
+      "cycles_held": 28,
       "reversal_streak": 0
     },
     "META": {
@@ -28,18 +28,9 @@
       "entry_confidence": 0.943,
       "high_water_mark": 594.73,
       "be_armed": false,
-      "cycles_held": 11,
+      "cycles_held": 12,
       "reversal_streak": 0
-    },
-    "COIN": {
-      "entry_date_et": "2026-08-14",
-      "entry_reason": "ml_ensemble",
-      "entry_confidence": 0.845,
-      "high_water_mark": 151.85,
-      "be_armed": false,
-      "cycles_held": 3,
-      "reversal_streak": 1
     }
   },
-  "last_run_utc": "2026-08-17T14:04:00Z"
+  "last_run_utc": "2026-08-17T16:10:00Z"
 }
