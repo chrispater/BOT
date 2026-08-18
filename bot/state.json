@@ -10,7 +10,7 @@
       "entry_confidence": 0.998,
       "high_water_mark": 719.18,
       "be_armed": false,
-      "cycles_held": 1,
+      "cycles_held": 2,
       "reversal_streak": 0
     },
     "NVDA": {
@@ -19,7 +19,7 @@
       "entry_confidence": 0.975,
       "high_water_mark": 225.04,
       "be_armed": false,
-      "cycles_held": 3,
+      "cycles_held": 4,
       "reversal_streak": 0
     },
     "USO": {
@@ -28,7 +28,7 @@
       "entry_confidence": 0.997,
       "high_water_mark": 131.43,
       "be_armed": true,
-      "cycles_held": 35,
+      "cycles_held": 36,
       "reversal_streak": 0
     },
     "META": {
@@ -37,7 +37,7 @@
       "entry_confidence": 0.934,
       "high_water_mark": 568.96,
       "be_armed": false,
-      "cycles_held": 4,
+      "cycles_held": 5,
       "reversal_streak": 0
     },
     "AMD": {
@@ -46,9 +46,9 @@
       "entry_confidence": 0.877,
       "high_water_mark": 489.35,
       "be_armed": false,
-      "cycles_held": 2,
+      "cycles_held": 3,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-08-18T17:40:00Z"
+  "last_run_utc": "2026-08-18T18:37:00Z"
 }
