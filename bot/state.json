@@ -8,9 +8,9 @@
       "entry_date_et": "2026-08-19",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.891,
-      "high_water_mark": 339.455,
+      "high_water_mark": 347.3875,
       "be_armed": false,
-      "cycles_held": 1,
+      "cycles_held": 2,
       "reversal_streak": 0
     },
     "NVDA": {
@@ -19,16 +19,7 @@
       "entry_confidence": 0.975,
       "high_water_mark": 225.04,
       "be_armed": false,
-      "cycles_held": 7,
-      "reversal_streak": 0
-    },
-    "USO": {
-      "entry_date_et": "2026-08-07",
-      "entry_reason": "ml_ensemble",
-      "entry_confidence": 0.997,
-      "high_water_mark": 131.43,
-      "be_armed": true,
-      "cycles_held": 39,
+      "cycles_held": 8,
       "reversal_streak": 0
     },
     "META": {
@@ -37,8 +28,8 @@
       "entry_confidence": 0.934,
       "high_water_mark": 568.96,
       "be_armed": false,
-      "cycles_held": 8,
-      "reversal_streak": 0
+      "cycles_held": 9,
+      "reversal_streak": 1
     },
     "AMD": {
       "entry_date_et": "2026-08-18",
@@ -46,9 +37,9 @@
       "entry_confidence": 0.877,
       "high_water_mark": 489.35,
       "be_armed": false,
-      "cycles_held": 6,
+      "cycles_held": 7,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-08-19T14:37:00Z"
+  "last_run_utc": "2026-08-19T15:41:00Z"
 }
