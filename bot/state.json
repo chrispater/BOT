@@ -10,8 +10,8 @@
       "entry_confidence": 0.891,
       "high_water_mark": 347.3875,
       "be_armed": false,
-      "cycles_held": 2,
-      "reversal_streak": 0
+      "cycles_held": 3,
+      "reversal_streak": 1
     },
     "NVDA": {
       "entry_date_et": "2026-08-18",
@@ -19,7 +19,7 @@
       "entry_confidence": 0.975,
       "high_water_mark": 225.04,
       "be_armed": false,
-      "cycles_held": 8,
+      "cycles_held": 9,
       "reversal_streak": 0
     },
     "META": {
@@ -28,8 +28,8 @@
       "entry_confidence": 0.934,
       "high_water_mark": 568.96,
       "be_armed": false,
-      "cycles_held": 9,
-      "reversal_streak": 1
+      "cycles_held": 10,
+      "reversal_streak": 0
     },
     "AMD": {
       "entry_date_et": "2026-08-18",
@@ -37,9 +37,9 @@
       "entry_confidence": 0.877,
       "high_water_mark": 489.35,
       "be_armed": false,
-      "cycles_held": 7,
+      "cycles_held": 8,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-08-19T15:41:00Z"
+  "last_run_utc": "2026-08-19T16:36:00Z"
 }
