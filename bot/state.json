@@ -4,13 +4,22 @@
   "peak_equity": 242.7435211646,
   "halted_today": false,
   "positions": {
+    "TSLA": {
+      "entry_date_et": "2026-08-19",
+      "entry_reason": "ml_ensemble",
+      "entry_confidence": 0.891,
+      "high_water_mark": 339.455,
+      "be_armed": false,
+      "cycles_held": 1,
+      "reversal_streak": 0
+    },
     "NVDA": {
       "entry_date_et": "2026-08-18",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.975,
       "high_water_mark": 225.04,
       "be_armed": false,
-      "cycles_held": 6,
+      "cycles_held": 7,
       "reversal_streak": 0
     },
     "USO": {
@@ -19,7 +28,7 @@
       "entry_confidence": 0.997,
       "high_water_mark": 131.43,
       "be_armed": true,
-      "cycles_held": 38,
+      "cycles_held": 39,
       "reversal_streak": 0
     },
     "META": {
@@ -28,7 +37,7 @@
       "entry_confidence": 0.934,
       "high_water_mark": 568.96,
       "be_armed": false,
-      "cycles_held": 7,
+      "cycles_held": 8,
       "reversal_streak": 0
     },
     "AMD": {
@@ -37,18 +46,9 @@
       "entry_confidence": 0.877,
       "high_water_mark": 489.35,
       "be_armed": false,
-      "cycles_held": 5,
-      "reversal_streak": 0
-    },
-    "TSLA": {
-      "entry_date_et": "2026-08-19",
-      "entry_reason": "ml_ensemble",
-      "entry_confidence": 0.891,
-      "high_water_mark": 339.455,
-      "be_armed": false,
-      "cycles_held": 0,
+      "cycles_held": 6,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-08-19T13:43:00Z"
+  "last_run_utc": "2026-08-19T14:37:00Z"
 }
