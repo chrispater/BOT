@@ -4,22 +4,22 @@
   "peak_equity": 242.7435211646,
   "halted_today": false,
   "positions": {
-    "ONEQ": {
-      "entry_date_et": "2026-08-20",
-      "entry_reason": "ml_ensemble",
-      "entry_confidence": 0.997,
-      "high_water_mark": 103.73,
-      "be_armed": false,
-      "cycles_held": 1,
-      "reversal_streak": 0
-    },
     "AAPL": {
       "entry_date_et": "2026-08-20",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.997,
       "high_water_mark": 318.14,
       "be_armed": false,
-      "cycles_held": 1,
+      "cycles_held": 2,
+      "reversal_streak": 0
+    },
+    "ONEQ": {
+      "entry_date_et": "2026-08-20",
+      "entry_reason": "ml_ensemble",
+      "entry_confidence": 0.997,
+      "high_water_mark": 103.73,
+      "be_armed": false,
+      "cycles_held": 2,
       "reversal_streak": 0
     },
     "AMZN": {
@@ -28,9 +28,27 @@
       "entry_confidence": 0.78,
       "high_water_mark": 265.89,
       "be_armed": false,
-      "cycles_held": 1,
+      "cycles_held": 2,
+      "reversal_streak": 0
+    },
+    "WMT": {
+      "entry_date_et": "2026-08-20",
+      "entry_reason": "ml_ensemble",
+      "entry_confidence": 0.99,
+      "high_water_mark": 103.13,
+      "be_armed": false,
+      "cycles_held": 0,
+      "reversal_streak": 0
+    },
+    "XRP": {
+      "entry_date_et": "2026-08-20",
+      "entry_reason": "breakout_long",
+      "entry_confidence": 0.8,
+      "high_water_mark": 13.9199,
+      "be_armed": false,
+      "cycles_held": 0,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-08-20T14:42:00Z"
+  "last_run_utc": "2026-08-20T15:42:00Z"
 }
