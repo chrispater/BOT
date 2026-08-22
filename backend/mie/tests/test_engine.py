@@ -2,8 +2,9 @@ import pandas as pd
 
 from backend.mie.engine import MarketIntelligenceEngine, EngineConfig
 from backend.mie.costs import FeeTier
-from backend.mie.state import ACTION_NOTHING, ACTION_LONG, ACTION_SHORT
+from backend.mie.state import ACTION_NOTHING, ACTION_LONG, ACTION_SHORT, HORIZONS_SEC
 from backend.mie.outcomes import resolve_outcomes
+from backend.mie.feature_engine import FeatureEngine
 from .conftest import make_ohlcv, make_predictable_ohlcv, SignalInjectingFeatureEngine
 
 
@@ -77,3 +78,48 @@ def test_engine_records_observation_to_store_when_given_one():
     with store._conn() as conn:
         n = conn.execute("SELECT COUNT(*) FROM observations WHERE symbol='TEST'").fetchone()[0]
     assert n == 1
+
+
+def test_fit_collapses_aliased_horizons_on_coarse_timeframe():
+    """
+    Regression test for a real bug: on a 5-minute bot, the default HORIZONS_SEC
+    (30s/1m/3m/5m/15m) has four values that all round to "1 bar ahead" via
+    bars_for_horizon, so fitting one EdgeModel per nominal horizon produced
+    four separately-trained-but-byte-identical models — same features, same
+    forward-return column — which read (correctly) as broken to a user
+    watching the Optimize tab's validation panel show identical stats under
+    four different horizon labels. engine.edge_models must never contain more
+    entries than there are genuinely distinct bar counts for the fit's
+    bar_seconds.
+    """
+    df = make_ohlcv(n=1500, seed=11, freq='5min')
+    fe = FeatureEngine(closed_only=False)
+    feats = fe.build_frame(df, keep_prices=True)
+    outcomes = resolve_outcomes(df, bar_seconds=300, horizons=HORIZONS_SEC)
+    full = feats.join(outcomes)
+
+    engine = MarketIntelligenceEngine(config=EngineConfig(horizons=list(HORIZONS_SEC)))
+    engine.fit(full, bar_seconds=300)
+
+    assert sorted(engine.edge_models.keys()) == [300, 900]   # not 5 duplicate entries
+    # And the two survivors must be genuinely different fits, not literally
+    # the same object reused under two keys.
+    assert engine.edge_models[300] is not engine.edge_models[900]
+
+
+def test_fit_prunes_stale_horizons_after_timeframe_change():
+    """A model fit under an old bar_seconds must not linger once a re-fit at a
+    different bar_seconds makes it a stale alias — a leftover model reflects
+    the wrong bar interval and must never be consulted as if it were current."""
+    df = make_ohlcv(n=1500, seed=12, freq='1min')
+    fe = FeatureEngine(closed_only=False)
+    feats = fe.build_frame(df, keep_prices=True)
+    engine = MarketIntelligenceEngine(config=EngineConfig(horizons=list(HORIZONS_SEC)))
+
+    outcomes_1m = resolve_outcomes(df, bar_seconds=60, horizons=HORIZONS_SEC)
+    engine.fit(feats.join(outcomes_1m), bar_seconds=60)
+    assert sorted(engine.edge_models.keys()) == [60, 180, 300, 900]
+
+    outcomes_15m = resolve_outcomes(df, bar_seconds=900, horizons=HORIZONS_SEC)
+    engine.fit(feats.join(outcomes_15m), bar_seconds=900)
+    assert sorted(engine.edge_models.keys()) == [900]   # 60/180/300 pruned, not left stale

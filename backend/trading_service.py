@@ -16,6 +16,7 @@ from sklearn.svm import SVC
 from sklearn.preprocessing import StandardScaler
 from sklearn.impute import SimpleImputer
 from imblearn.over_sampling import SMOTE
+from .edge_analytics import bucket_keys as _edge_bucket_keys
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -2936,16 +2937,20 @@ class TradingService:
         if not buckets:
             return 50, 'no profile yet'
 
-        vol_band = 'high' if (ctx.get('vol_pct') or 0.5) >= 0.6 else (
-                   'low' if (ctx.get('vol_pct') or 0.5) <= 0.4 else 'mid')
-        keys = [
-            f"setup={ctx.get('setup_name') or 'ml'}",
-            f"regime={ctx.get('regime')}",
-            f"vol={vol_band}",
-            f"regime={ctx.get('regime')}|vol={vol_band}",
-        ]
-        if ctx.get('btc_agree') is not None:
-            keys.append(f"btc_agree={bool(ctx.get('btc_agree'))}")
+        # Build the exact same "row" shape edge_analytics.bucket_keys() reads
+        # when it built these buckets from trade history, so the live lookup
+        # can see every dimension the profile actually differentiates on —
+        # symbol, side and session included. A hand-rolled subset of keys here
+        # (the previous version checked only setup/regime/vol/btc_agree) meant
+        # every coin and every direction collapsed onto the same shared
+        # regime-level bucket, silently discarding the profile's per-coin and
+        # per-side evidence and making every symbol score identically.
+        side = 'long' if ctx.get('ml_signal') == 1 else ('short' if ctx.get('ml_signal') == -1 else None)
+        row = dict(ctx)
+        row['symbol'] = symbol
+        row['side'] = side
+        row['context'] = {'btc_agree': ctx.get('btc_agree'), 'book_imbalance': ctx.get('book_imbalance')}
+        keys = _edge_bucket_keys(row)
 
         hits = [buckets[k] for k in keys if k in buckets
                 and buckets[k].get('n', 0) >= prof.get('min_sample', 25)]

@@ -23,6 +23,38 @@ def bars_for_horizon(horizon_sec: int, bar_seconds: float) -> int:
     return max(1, round(horizon_sec / bar_seconds))
 
 
+def resolve_distinct_horizons(candidate_horizons: List[int], bar_seconds: float) -> List[int]:
+    """
+    Collapse a candidate horizon list to the ones that are actually
+    distinguishable at this bar interval.
+
+    `bars_for_horizon` floors every horizon to a whole number of bars, so on a
+    5-minute timeframe, 30s/1m/3m/5m all round to "1 bar ahead" — training a
+    separate EdgeModel for each produces four models fit on byte-identical
+    labels (same feature rows, same forward-return column), which look like a
+    bug because they report byte-identical validation stats. They're not
+    wrong, they're just the same model wearing four different name tags.
+
+    Returns one horizon per distinct bar count, keeping whichever candidate in
+    that group is closest to `bar_count * bar_seconds` — the label that most
+    honestly describes what's actually being predicted — while guaranteeing
+    the returned value is always one of the ORIGINAL candidates, so its
+    ret_/mfe_/mae_ outcome columns are guaranteed to already exist (outcomes
+    are resolved for the full original candidate list; nothing here invents a
+    horizon whose columns were never computed).
+    """
+    groups: Dict[int, List[int]] = {}
+    for h in candidate_horizons:
+        k = bars_for_horizon(h, bar_seconds)
+        groups.setdefault(k, []).append(h)
+
+    survivors = []
+    for k, group in groups.items():
+        target = k * bar_seconds
+        survivors.append(min(group, key=lambda h: abs(h - target)))
+    return sorted(survivors)
+
+
 def resolve_outcomes(df: pd.DataFrame, bar_seconds: float,
                      horizons: Optional[List[int]] = None) -> pd.DataFrame:
     """

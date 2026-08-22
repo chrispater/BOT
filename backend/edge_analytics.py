@@ -117,10 +117,19 @@ def _session(hour) -> str:
     return 'late'
 
 
-def _bucket_keys(row) -> list:
+def bucket_keys(row) -> list:
     """Condition buckets a single trade belongs to. Deliberately a small, fixed
     set of interpretable slices — an unbounded search over feature combinations
-    would generate false discoveries faster than any bound could suppress."""
+    would generate false discoveries faster than any bound could suppress.
+
+    Also called live from trading_service.py's _trade_quality() to look up
+    the profile at decision time — kept as the ONE definition of what a
+    "condition bucket" is, used identically to build the profile from trade
+    history and to query it live. The two used to diverge (the live lookup
+    hand-rolled a shorter key list missing symbol/side/session/book, so the
+    gate could never actually see per-coin or per-direction evidence even
+    though the profile had it) — that's exactly the kind of drift a shared
+    function exists to make impossible."""
     regime = _f(row, 'regime') or 'unknown'
     setup = _f(row, 'setup_name') or 'ml'
     vol = _vol_band(_num(row, 'vol_pct'))
@@ -168,7 +177,7 @@ def analyze_trades(trades: list, min_sample: int = 25) -> dict:
     grouped = defaultdict(list)
     for t in rows:
         r = _num(t, 'r_multiple')
-        for k in _bucket_keys(t):
+        for k in bucket_keys(t):
             grouped[k].append(r)
 
     buckets = {}
@@ -228,7 +237,7 @@ def analyze_observations(observations: list, horizon: str = 'ret_5',
         mae = _num(o, 'mae', 0.0)
         if sig < 0:
             mfe, mae = (-mae if mae is not None else None), (-mfe if mfe is not None else None)
-        for k in _bucket_keys(o):
+        for k in bucket_keys(o):
             grouped[k].append(fwd)
             if mfe is not None:
                 mfe_by[k].append(mfe)

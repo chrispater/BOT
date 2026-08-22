@@ -41,6 +41,7 @@ from .regime import RegimeModel
 from .edge_model import EdgeModel, select_trainable_features
 from .costs import estimate_costs_from_book, estimate_costs_fallback, DEFAULT_FEE_TIER, FeeTier
 from .store import ObservationStore
+from .outcomes import resolve_distinct_horizons
 
 logger = logging.getLogger(__name__)
 
@@ -83,10 +84,20 @@ class MarketIntelligenceEngine:
     def fit(self, training_df: pd.DataFrame, bar_seconds: float,
            candidate_features: Optional[List[str]] = None) -> Dict[int, str]:
         """
-        Fit + validate one EdgeModel per configured horizon against
+        Fit + validate one EdgeModel per DISTINCT configured horizon against
         `training_df` (typically store.load_training_frame(...) or a backtest's
         feature+outcome frame). Returns {horizon_sec: validation summary line}
         for logging/inspection; the models themselves are held internally.
+
+        "Distinct" matters: `bars_for_horizon` floors every horizon to a whole
+        number of bars, so on a timeframe coarser than several configured
+        horizons (e.g. 30s/1m/3m/5m all round to "1 bar ahead" on a 5-minute
+        bot), fitting one model per nominal horizon would silently fit the
+        same model several times over — same features, same forward-return
+        column, byte-identical validation stats — under different name tags.
+        `resolve_distinct_horizons` collapses those to one model per bar
+        count before any fitting happens, so `edge_models` never holds
+        duplicates and callers never see confusingly-identical reports.
         """
         candidate_features = candidate_features or [
             c for c in training_df.columns
@@ -94,8 +105,23 @@ class MarketIntelligenceEngine:
             and not c.startswith(('ret_', 'mfe_', 'mae_'))
         ]
         self._candidate_features = candidate_features
+
+        distinct_horizons = resolve_distinct_horizons(self.config.horizons, bar_seconds)
+        if len(distinct_horizons) < len(self.config.horizons):
+            logger.info(
+                f"MIE fit: {len(self.config.horizons)} configured horizons collapse to "
+                f"{len(distinct_horizons)} distinct at {bar_seconds}s bars — "
+                f"{self.config.horizons} -> {distinct_horizons}")
+
+        # Drop any previously-fit model whose horizon isn't in the current
+        # distinct set — e.g. after a timeframe change, a horizon that used to
+        # be distinct may now alias another, and a stale model must not linger
+        # and be consulted as if it still reflected the current bar interval.
+        for stale in set(self.edge_models) - set(distinct_horizons):
+            del self.edge_models[stale]
+
         summaries = {}
-        for h in self.config.horizons:
+        for h in distinct_horizons:
             model = EdgeModel(horizon_sec=h)
             model.fit(training_df, candidate_features, bar_seconds)
             self.edge_models[h] = model
