@@ -105,7 +105,7 @@ function GateProgress({ label, current, target, ready, subtitle }) {
   )
 }
 
-function GateStatusCard({ botStatus, edgeReport }) {
+function GateStatusCard({ botStatus, edgeReport, loading, error }) {
   const mieOn = !!botStatus?.mie_gate_enabled
   const mieObs = botStatus?.mie_resolved_observations || 0
   const mieReady = !!botStatus?.mie_any_validated
@@ -114,6 +114,11 @@ function GateStatusCard({ botStatus, edgeReport }) {
   const qualifiedBuckets = profile ? Object.values(profile.buckets || {}).filter(b => b.qualified).length : 0
   const tradeN = profile?.n || 0
   const qualityReady = !!edgeReport?.gate_armed
+  // Distinguish "the report says zero" from "we never got the report". Without
+  // this the card renders a confident 0/30 when /api/edge/report is simply
+  // still in flight or has failed — which contradicts the live quality numbers
+  // on the Right Now tab (a different endpoint) and reads as a data bug.
+  const profileUnavailable = !loading && !error && !profile
 
   return (
     <Card title="Evidence Gates"
@@ -133,15 +138,27 @@ function GateStatusCard({ botStatus, edgeReport }) {
         <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>
           Quality Gate (edge post-mortem)
         </div>
-        <GateProgress
-          label="Closed trades analyzed"
-          current={tradeN} target={qualityReady ? null : QUALITY_TRADE_TARGET} ready={qualityReady}
-        />
-        {!qualityReady && (
-          <GateProgress
-            label="Qualified condition buckets"
-            current={qualifiedBuckets} target={QUALITY_BUCKET_TARGET} ready={qualifiedBuckets >= QUALITY_BUCKET_TARGET}
-          />
+        {loading && <EmptyState>Loading the post-mortem report…</EmptyState>}
+        {error && <EmptyState>{error} The live scores on the Right Now tab come from a different endpoint and are unaffected.</EmptyState>}
+        {profileUnavailable && (
+          <EmptyState>
+            No post-mortem profile returned yet. The live scores on the Right Now tab come from a
+            different endpoint and are unaffected.
+          </EmptyState>
+        )}
+        {!loading && !error && profile && (
+          <>
+            <GateProgress
+              label="Closed trades analyzed"
+              current={tradeN} target={qualityReady ? null : QUALITY_TRADE_TARGET} ready={qualityReady}
+            />
+            {!qualityReady && (
+              <GateProgress
+                label="Qualified condition buckets"
+                current={qualifiedBuckets} target={QUALITY_BUCKET_TARGET} ready={qualifiedBuckets >= QUALITY_BUCKET_TARGET}
+              />
+            )}
+          </>
         )}
       </div>
     </Card>
@@ -281,7 +298,9 @@ export default function InsightsPage({ botStatus, api }) {
       </div>
 
       {tab === 'now' && <RightNowTab botStatus={botStatus} />}
-      {tab === 'gates' && <GateStatusCard botStatus={botStatus} edgeReport={edgeReport} />}
+      {tab === 'gates' && (
+        <GateStatusCard botStatus={botStatus} edgeReport={edgeReport} loading={loading} error={error} />
+      )}
       {tab === 'postmortem' && (
         <PostMortemTab edgeReport={edgeReport} loading={loading} error={error} onRefresh={loadEdgeReport} />
       )}

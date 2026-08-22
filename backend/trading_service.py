@@ -2952,19 +2952,30 @@ class TradingService:
         row['context'] = {'btc_agree': ctx.get('btc_agree'), 'book_imbalance': ctx.get('book_imbalance')}
         keys = _edge_bucket_keys(row)
 
-        hits = [buckets[k] for k in keys if k in buckets
-                and buckets[k].get('n', 0) >= prof.get('min_sample', 25)]
-        if not hits:
+        applicable = [(k, buckets[k]) for k in keys if k in buckets
+                      and buckets[k].get('n', 0) >= prof.get('min_sample', 25)]
+        if not applicable:
             return 45, 'no comparable history'
 
         # Worst applicable bucket governs — a condition known to be unprofitable
         # is not rescued by a different slice that happens to look fine.
-        lb = min(float(h['expectancy_lb']) for h in hits)
-        n = min(int(h['n']) for h in hits)
+        #
+        # Name the condition that drove the verdict. Several coins genuinely CAN
+        # score identically: when the worst applicable bucket is a market-wide
+        # slice (regime / volatility band / session) they are all being judged by
+        # the same shared evidence, and that is the correct answer, not a bug.
+        # But an unattributed bare number ("-0.420R (n=30)") repeated across every
+        # coin is indistinguishable from a broken gate — naming the bucket is the
+        # difference between that reading as an explanation and reading as a fault.
+        worst_key, worst = min(applicable, key=lambda kv: float(kv[1]['expectancy_lb']))
+        lb = float(worst['expectancy_lb'])
+        # The DRIVING bucket's own sample size. Previously this was min(n) across
+        # every applicable bucket, which could report a sample belonging to a
+        # completely different slice than the expectancy shown beside it.
+        n = int(worst['n'])
+        prov = ', provisional' if worst.get('provisional') else ''
         score = int(max(0, min(100, 50 + lb * 100)))
-        if lb <= 0:
-            return score, f'negative expectancy lower-bound {lb:+.3f}R (n={n})'
-        return score, f'expectancy lower-bound {lb:+.3f}R (n={n})'
+        return score, f'{worst_key} · lower-bound {lb:+.3f}R (n={n}{prov})'
 
     # ── Main cycle ───────────────────────────────────────────────────────────
 
