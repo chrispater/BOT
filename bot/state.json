@@ -1,6 +1,6 @@
 {
-  "date_et": "2026-08-21",
-  "start_of_day_equity": 239.61051213,
+  "date_et": "2026-08-24",
+  "start_of_day_equity": 239.89758996700002,
   "peak_equity": 242.7435211646,
   "halted_today": false,
   "positions": {
@@ -10,26 +10,8 @@
       "entry_confidence": 0.99,
       "high_water_mark": 104.2699,
       "be_armed": false,
-      "cycles_held": 11,
+      "cycles_held": 12,
       "reversal_streak": 0
-    },
-    "AAPL": {
-      "entry_date_et": "2026-08-20",
-      "entry_reason": "ml_ensemble",
-      "entry_confidence": 0.997,
-      "high_water_mark": 318.14,
-      "be_armed": false,
-      "cycles_held": 13,
-      "reversal_streak": 0
-    },
-    "JPM": {
-      "entry_date_et": "2026-08-21",
-      "entry_reason": "ml_ensemble",
-      "entry_confidence": 0.877,
-      "high_water_mark": 356.6899,
-      "be_armed": false,
-      "cycles_held": 6,
-      "reversal_streak": 4
     },
     "AMD": {
       "entry_date_et": "2026-08-21",
@@ -37,27 +19,18 @@
       "entry_confidence": 0.942,
       "high_water_mark": 473.8199,
       "be_armed": false,
-      "cycles_held": 6,
+      "cycles_held": 7,
       "reversal_streak": 0
     },
-    "ONEQ": {
-      "entry_date_et": "2026-08-20",
+    "QQQ": {
+      "entry_date_et": "2026-08-24",
       "entry_reason": "ml_ensemble",
-      "entry_confidence": 0.997,
-      "high_water_mark": 103.73,
+      "entry_confidence": 0.993,
+      "high_water_mark": 703.6599,
       "be_armed": false,
-      "cycles_held": 13,
-      "reversal_streak": 0
-    },
-    "AMZN": {
-      "entry_date_et": "2026-08-20",
-      "entry_reason": "breakout_long",
-      "entry_confidence": 0.78,
-      "high_water_mark": 265.89,
-      "be_armed": false,
-      "cycles_held": 13,
+      "cycles_held": 0,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-08-21T19:36:00Z"
+  "last_run_utc": "2026-08-24T13:37:00Z"
 }
