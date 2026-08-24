@@ -10,16 +10,7 @@
       "entry_confidence": 0.993,
       "high_water_mark": 706.4,
       "be_armed": false,
-      "cycles_held": 1,
-      "reversal_streak": 0
-    },
-    "WMT": {
-      "entry_date_et": "2026-08-20",
-      "entry_reason": "ml_ensemble",
-      "entry_confidence": 0.99,
-      "high_water_mark": 104.2699,
-      "be_armed": false,
-      "cycles_held": 13,
+      "cycles_held": 2,
       "reversal_streak": 0
     },
     "AMD": {
@@ -28,9 +19,9 @@
       "entry_confidence": 0.942,
       "high_water_mark": 473.8199,
       "be_armed": false,
-      "cycles_held": 8,
+      "cycles_held": 9,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-08-24T14:36:00Z"
+  "last_run_utc": "2026-08-24T15:36:00Z"
 }
