@@ -10,8 +10,8 @@
       "entry_confidence": 0.993,
       "high_water_mark": 708.025,
       "be_armed": false,
-      "cycles_held": 4,
-      "reversal_streak": 2
+      "cycles_held": 5,
+      "reversal_streak": 3
     },
     "AMD": {
       "entry_date_et": "2026-08-21",
@@ -19,9 +19,9 @@
       "entry_confidence": 0.942,
       "high_water_mark": 473.8199,
       "be_armed": false,
-      "cycles_held": 11,
+      "cycles_held": 12,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-08-24T17:36:00Z"
+  "last_run_utc": "2026-08-24T19:36:00Z"
 }
