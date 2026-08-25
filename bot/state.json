@@ -4,22 +4,13 @@
   "peak_equity": 242.7435211646,
   "halted_today": false,
   "positions": {
-    "AMD": {
-      "entry_date_et": "2026-08-21",
-      "entry_reason": "ml_ensemble",
-      "entry_confidence": 0.942,
-      "high_water_mark": 473.8199,
-      "be_armed": false,
-      "cycles_held": 13,
-      "reversal_streak": 0
-    },
     "WMT": {
       "entry_date_et": "2026-08-25",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.987,
       "high_water_mark": 104.9699,
       "be_armed": false,
-      "cycles_held": 0,
+      "cycles_held": 1,
       "reversal_streak": 0
     },
     "V": {
@@ -28,9 +19,9 @@
       "entry_confidence": 0.8,
       "high_water_mark": 382.4699,
       "be_armed": false,
-      "cycles_held": 0,
+      "cycles_held": 1,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-08-25T13:37:00Z"
+  "last_run_utc": "2026-08-25T14:37:00Z"
 }
