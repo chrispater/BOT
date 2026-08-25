@@ -8,18 +8,18 @@
       "entry_date_et": "2026-08-25",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.987,
-      "high_water_mark": 105.435,
+      "high_water_mark": 105.825,
       "be_armed": false,
-      "cycles_held": 5,
+      "cycles_held": 6,
       "reversal_streak": 0
     },
     "V": {
       "entry_date_et": "2026-08-25",
       "entry_reason": "breakout_long",
       "entry_confidence": 0.8,
-      "high_water_mark": 382.77,
+      "high_water_mark": 383.28,
       "be_armed": false,
-      "cycles_held": 5,
+      "cycles_held": 6,
       "reversal_streak": 0
     },
     "MSTR": {
@@ -28,18 +28,18 @@
       "entry_confidence": 0.78,
       "high_water_mark": 127.65,
       "be_armed": false,
-      "cycles_held": 3,
+      "cycles_held": 4,
       "reversal_streak": 0
     },
     "AMD": {
       "entry_date_et": "2026-08-25",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.906,
-      "high_water_mark": 478.07,
+      "high_water_mark": 480.6433,
       "be_armed": false,
-      "cycles_held": 2,
+      "cycles_held": 3,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-08-25T18:36:00Z"
+  "last_run_utc": "2026-08-25T19:36:00Z"
 }
