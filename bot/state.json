@@ -1,16 +1,16 @@
 {
   "date_et": "2026-08-25",
   "start_of_day_equity": 242.27203382000002,
-  "peak_equity": 242.957298485,
+  "peak_equity": 243.67368568999999,
   "halted_today": false,
   "positions": {
     "WMT": {
       "entry_date_et": "2026-08-25",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.987,
-      "high_water_mark": 105.06,
+      "high_water_mark": 105.435,
       "be_armed": false,
-      "cycles_held": 4,
+      "cycles_held": 5,
       "reversal_streak": 0
     },
     "V": {
@@ -19,27 +19,27 @@
       "entry_confidence": 0.8,
       "high_water_mark": 382.77,
       "be_armed": false,
-      "cycles_held": 4,
+      "cycles_held": 5,
       "reversal_streak": 0
     },
     "MSTR": {
       "entry_date_et": "2026-08-25",
       "entry_reason": "breakout_long",
       "entry_confidence": 0.78,
-      "high_water_mark": 127.57,
+      "high_water_mark": 127.65,
       "be_armed": false,
-      "cycles_held": 2,
+      "cycles_held": 3,
       "reversal_streak": 0
     },
     "AMD": {
       "entry_date_et": "2026-08-25",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.906,
-      "high_water_mark": 477.2599,
+      "high_water_mark": 478.07,
       "be_armed": false,
-      "cycles_held": 1,
+      "cycles_held": 2,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-08-25T17:36:00Z"
+  "last_run_utc": "2026-08-25T18:36:00Z"
 }
