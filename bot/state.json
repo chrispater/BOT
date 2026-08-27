@@ -10,18 +10,9 @@
       "entry_confidence": 0.8,
       "high_water_mark": 581.01,
       "be_armed": false,
-      "cycles_held": 9,
+      "cycles_held": 10,
       "reversal_streak": 0
-    },
-    "TLT": {
-      "entry_date_et": "2026-08-26",
-      "entry_reason": "breakout_long",
-      "entry_confidence": 0.78,
-      "high_water_mark": 83.3,
-      "be_armed": false,
-      "cycles_held": 11,
-      "reversal_streak": 1
     }
   },
-  "last_run_utc": "2026-08-27T17:36:00Z"
+  "last_run_utc": "2026-08-27T18:36:00Z"
 }
