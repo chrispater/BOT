@@ -1,18 +1,8 @@
 {
   "date_et": "2026-08-28",
   "start_of_day_equity": 245.79330000000002,
-  "peak_equity": 245.79330000000002,
+  "peak_equity": 246.05995989,
   "halted_today": false,
-  "positions": {
-    "META": {
-      "entry_date_et": "2026-08-26",
-      "entry_reason": "breakout_long",
-      "entry_confidence": 0.8,
-      "high_water_mark": 581.01,
-      "be_armed": false,
-      "cycles_held": 13,
-      "reversal_streak": 0
-    }
-  },
-  "last_run_utc": "2026-08-28T14:36:00Z"
+  "positions": {},
+  "last_run_utc": "2026-08-28T15:36:00Z"
 }
