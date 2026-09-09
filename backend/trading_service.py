@@ -1053,18 +1053,40 @@ class TradingService:
 
     def _check_performance_floor(self) -> bool:
         """
-        Auto-pause new entries when the last 20 closed trades have < 40% win rate.
-        Requires 20 samples to avoid false triggers early in a session.
-        Returns True (= block entry) if performance is too poor to risk capital.
+        Auto-pause new entries when recent trading has NEGATIVE EXPECTANCY.
+        Returns True (= block entry).
+
+        This used to gate on win rate (< 40%), which is the wrong test for an
+        asymmetric-payoff system and contradicted the direction the exit engine
+        was deliberately built in. A book of 38% winners at +2R against 62%
+        losers at -0.5R has expectancy +0.45R — solidly profitable — yet a
+        win-rate floor would have halted it. The question that matters is not
+        "how often am I right?" but "does the average trade make money?"
+
+        Measured on pnl_pct (% of margin) rather than dollars so the mean is not
+        dominated by whichever trades happened to be sized largest. Since
+        R = pnl_pct / stop_loss_pct and the stop is a constant scalar, the SIGN
+        of mean pnl_pct is identical to the sign of mean R — so this is an
+        expectancy test in the same unit the edge analytics use.
         """
         recent = [t for t in self.trades_history if t.get('type') == 'close' and 'pnl' in t][-20:]
         if len(recent) < 20:
             return False
-        wins = sum(1 for t in recent if t['pnl'] > 0)
-        wr = wins / len(recent)
-        if wr < 0.40:
+
+        # Prefer margin-relative returns; fall back to dollars for older rows
+        # recorded before pnl_pct existed.
+        vals = [float(t['pnl_pct']) for t in recent if t.get('pnl_pct') is not None]
+        unit = '% margin'
+        if len(vals) < len(recent):
+            vals = [float(t['pnl']) for t in recent]
+            unit = '$'
+
+        expectancy = sum(vals) / len(vals)
+        if expectancy < 0:
+            wins = sum(1 for v in vals if v > 0)
             logger.warning(
-                f"User {self.user_id}: Win rate {wr:.0%} over last 20 trades < 40% floor — pausing new entries"
+                f"User {self.user_id}: Negative expectancy {expectancy:+.3f} {unit} "
+                f"over last {len(vals)} trades (win rate {wins/len(vals):.0%}) — pausing new entries"
             )
             return True
         return False
