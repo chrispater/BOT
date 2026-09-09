@@ -148,13 +148,20 @@ def adaptive_scale(closed_trades: list) -> float:
     return max(0.75, min(1.30, scale))
 
 
-def performance_floor(closed_trades: list) -> bool:
-    """True = block new entries (win rate < 40% over the last 20 closed trades)."""
+def recent_expectancy(closed_trades: list):
+    """Mean realized P&L % over the last 20 closed trades, or None until 20 are
+    on record. Entries are blocked when this is <= 0.
+
+    Deliberately expectancy, not win rate: this strategy exits losers early on
+    time_stop/signal_reversal and lets winners run, so a healthy run looks like
+    many sub-1% scratches against a few large gains. A win-rate floor blocks
+    that profile while it is making money, and because the window only advances
+    when a trade closes — which needs an entry — the block is self-latching.
+    """
     recent = closed_trades[-20:]
     if len(recent) < 20:
-        return False
-    wins = sum(1 for t in recent if t['pnl_pct'] > 0)
-    return wins / len(recent) < 0.40
+        return None
+    return sum(t['pnl_pct'] for t in recent) / len(recent)
 
 
 def half_kelly_fraction(closed_trades: list, fallback: float, cap: float) -> float:
@@ -308,10 +315,11 @@ def run(snapshot: dict) -> dict:
     # ── Hard drawdown stop (entries only; exits still managed below) ────────
     hard_dd = (peak_equity - equity) / peak_equity if peak_equity > 0 else 0.0
     entries_blocked = None
+    expectancy = recent_expectancy(closed_trades)
     if hard_dd > cfg['max_drawdown_pct'] / 100.0:
         entries_blocked = f"drawdown {hard_dd:.1%} > max {cfg['max_drawdown_pct']}%"
-    elif performance_floor(closed_trades):
-        entries_blocked = "win rate < 40% over last 20 trades"
+    elif expectancy is not None and expectancy <= 0:
+        entries_blocked = f"expectancy {expectancy:+.2f}% <= 0 over last 20 trades"
 
     # ── Regime ───────────────────────────────────────────────────────────────
     regime = market_regime(snapshot.get('regime_bars'))
