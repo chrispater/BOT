@@ -1,7 +1,7 @@
 {
-  "date_et": "2026-09-09",
-  "start_of_day_equity": 246.37999999999997,
-  "peak_equity": 246.95565931849998,
+  "date_et": "2026-09-10",
+  "start_of_day_equity": 250.50202789569997,
+  "peak_equity": 250.50202789569997,
   "halted_today": false,
   "positions": {
     "WMT": {
@@ -10,7 +10,7 @@
       "entry_confidence": 0.936,
       "high_water_mark": 106.01,
       "be_armed": false,
-      "cycles_held": 1,
+      "cycles_held": 2,
       "reversal_streak": 0
     },
     "AAPL": {
@@ -19,14 +19,23 @@
       "entry_confidence": 0.82,
       "high_water_mark": 316.66,
       "be_armed": false,
-      "cycles_held": 1,
+      "cycles_held": 2,
       "reversal_streak": 0
     },
     "USO": {
       "entry_date_et": "2026-09-09",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.949,
-      "high_water_mark": 149.76,
+      "high_water_mark": 149.94,
+      "be_armed": false,
+      "cycles_held": 2,
+      "reversal_streak": 0
+    },
+    "UUP": {
+      "entry_date_et": "2026-09-09",
+      "entry_reason": "bull_divergence",
+      "entry_confidence": 0.78,
+      "high_water_mark": 27.98,
       "be_armed": false,
       "cycles_held": 1,
       "reversal_streak": 0
@@ -37,7 +46,7 @@
       "entry_confidence": 1.0,
       "high_water_mark": 492.17,
       "be_armed": false,
-      "cycles_held": 1,
+      "cycles_held": 2,
       "reversal_streak": 0
     },
     "XLE": {
@@ -46,18 +55,18 @@
       "entry_confidence": 0.988,
       "high_water_mark": 65.46,
       "be_armed": false,
-      "cycles_held": 1,
+      "cycles_held": 2,
       "reversal_streak": 0
     },
-    "UUP": {
-      "entry_date_et": "2026-09-09",
-      "entry_reason": "bull_divergence",
-      "entry_confidence": 0.78,
-      "high_water_mark": 27.98,
+    "AMD": {
+      "entry_date_et": "2026-09-10",
+      "entry_reason": "ml_ensemble",
+      "entry_confidence": 0.864,
+      "high_water_mark": 510.94,
       "be_armed": false,
       "cycles_held": 0,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-09-09T19:36:00Z"
+  "last_run_utc": "2026-09-10T13:36:00Z"
 }
