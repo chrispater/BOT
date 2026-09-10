@@ -10,25 +10,25 @@
       "entry_confidence": 0.936,
       "high_water_mark": 106.16,
       "be_armed": false,
-      "cycles_held": 6,
+      "cycles_held": 7,
       "reversal_streak": 0
     },
     "AAPL": {
       "entry_date_et": "2026-09-09",
       "entry_reason": "shakeout_spring",
       "entry_confidence": 0.82,
-      "high_water_mark": 323.35,
+      "high_water_mark": 325.01,
       "be_armed": true,
-      "cycles_held": 6,
+      "cycles_held": 7,
       "reversal_streak": 0
     },
     "UUP": {
       "entry_date_et": "2026-09-09",
       "entry_reason": "bull_divergence",
       "entry_confidence": 0.78,
-      "high_water_mark": 28.025,
+      "high_water_mark": 28.0288,
       "be_armed": false,
-      "cycles_held": 5,
+      "cycles_held": 6,
       "reversal_streak": 0
     },
     "AMD": {
@@ -37,8 +37,8 @@
       "entry_confidence": 0.864,
       "high_water_mark": 510.94,
       "be_armed": false,
-      "cycles_held": 4,
-      "reversal_streak": 2
+      "cycles_held": 5,
+      "reversal_streak": 3
     },
     "MSFT": {
       "entry_date_et": "2026-09-09",
@@ -46,7 +46,7 @@
       "entry_confidence": 1.0,
       "high_water_mark": 493.69,
       "be_armed": false,
-      "cycles_held": 6,
+      "cycles_held": 7,
       "reversal_streak": 0
     },
     "XLE": {
@@ -55,9 +55,9 @@
       "entry_confidence": 0.988,
       "high_water_mark": 65.46,
       "be_armed": false,
-      "cycles_held": 6,
+      "cycles_held": 7,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-09-10T17:36:00Z"
+  "last_run_utc": "2026-09-10T18:36:00Z"
 }
