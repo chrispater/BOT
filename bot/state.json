@@ -1,0 +1,27 @@
+{
+  "date_et": "2026-09-11",
+  "start_of_day_equity": 253.78448641740002,
+  "peak_equity": 256.163725925,
+  "halted_today": false,
+  "positions": {
+    "USO": {
+      "entry_date_et": "2026-09-11",
+      "entry_reason": "ml_ensemble",
+      "entry_confidence": 0.998,
+      "high_water_mark": 154.7,
+      "be_armed": false,
+      "cycles_held": 4,
+      "reversal_streak": 2
+    },
+    "UUP": {
+      "entry_date_et": "2026-09-09",
+      "entry_reason": "bull_divergence",
+      "entry_confidence": 0.78,
+      "high_water_mark": 28.06,
+      "be_armed": false,
+      "cycles_held": 13,
+      "reversal_streak": 0
+    }
+  },
+  "last_run_utc": "2026-09-11T19:54:00Z"
+}

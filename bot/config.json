@@ -1,0 +1,42 @@
+{
+  "mode": "live",
+  "account_number": "957796733",
+  "risk": {
+    "max_position_pct_of_equity": 25,
+    "daily_loss_stop_pct": 10,
+    "max_open_positions": 15,
+    "per_position_stop_loss_pct": 5,
+    "per_position_take_profit_pct": 10
+  },
+  "strategy": {
+    "min_confidence": 0.60,
+    "setup_min_confidence": 0.72,
+    "label_threshold": 0.004,
+    "forward_periods": 5,
+    "adx_threshold": 20,
+    "min_volume_ratio": 0.65,
+    "trailing_stop_pct": 4.0,
+    "breakeven_arm_pct": 2.5,
+    "breakeven_floor_pct": 0.5,
+    "time_stop_hours": 14,
+    "min_hold_hours": 3,
+    "reversal_confirm_cycles": 2,
+    "max_drawdown_pct": 25,
+    "slippage_pct_per_side": 0.1,
+    "regime_symbol": "SPY",
+    "history_days": 60,
+    "bar_interval": "hour"
+  },
+  "universe": ["IBIT", "ETHA", "COIN", "MSTR", "NVDA", "TSLA", "QQQ", "SPY",
+               "ONEQ", "DIA",
+               "XRP", "XRPC", "XRPZ", "TOXR", "GXRP",
+               "XRPR", "XRPI", "XXRP", "UXRP", "XRPT",
+               "MSFT", "GOOGL", "META", "AMD",
+               "USO", "XLE",
+               "UUP",
+               "TLT",
+               "JPM", "V", "WMT", "AAPL", "AMZN"],
+  "min_order_usd": 5.0,
+  "cash_reserve_usd": 1.0,
+  "order_style": "market_dollar_amount_regular_hours"
+}
