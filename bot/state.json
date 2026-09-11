@@ -1,25 +1,16 @@
 {
   "date_et": "2026-09-11",
   "start_of_day_equity": 253.78448641740002,
-  "peak_equity": 255.20224494099998,
+  "peak_equity": 255.49990966869998,
   "halted_today": false,
   "positions": {
     "WMT": {
       "entry_date_et": "2026-09-09",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.936,
-      "high_water_mark": 106.16,
+      "high_water_mark": 106.175,
       "be_armed": false,
-      "cycles_held": 11,
-      "reversal_streak": 0
-    },
-    "AAPL": {
-      "entry_date_et": "2026-09-09",
-      "entry_reason": "shakeout_spring",
-      "entry_confidence": 0.82,
-      "high_water_mark": 334.96,
-      "be_armed": true,
-      "cycles_held": 11,
+      "cycles_held": 12,
       "reversal_streak": 0
     },
     "USO": {
@@ -28,25 +19,25 @@
       "entry_confidence": 0.998,
       "high_water_mark": 154.3,
       "be_armed": false,
-      "cycles_held": 1,
+      "cycles_held": 2,
       "reversal_streak": 0
     },
     "UUP": {
       "entry_date_et": "2026-09-09",
       "entry_reason": "bull_divergence",
       "entry_confidence": 0.78,
-      "high_water_mark": 28.04,
+      "high_water_mark": 28.0501,
       "be_armed": false,
-      "cycles_held": 10,
+      "cycles_held": 11,
       "reversal_streak": 0
     },
     "MSFT": {
       "entry_date_et": "2026-09-09",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 1.0,
-      "high_water_mark": 493.69,
+      "high_water_mark": 494.565,
       "be_armed": false,
-      "cycles_held": 11,
+      "cycles_held": 12,
       "reversal_streak": 0
     },
     "XLE": {
@@ -55,9 +46,9 @@
       "entry_confidence": 0.988,
       "high_water_mark": 65.46,
       "be_armed": false,
-      "cycles_held": 11,
+      "cycles_held": 12,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-09-11T15:36:00Z"
+  "last_run_utc": "2026-09-11T16:36:00Z"
 }
