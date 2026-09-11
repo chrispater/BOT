@@ -1,7 +1,7 @@
 {
-  "date_et": "2026-09-10",
-  "start_of_day_equity": 250.50202789569997,
-  "peak_equity": 251.76910604539998,
+  "date_et": "2026-09-11",
+  "start_of_day_equity": 253.78448641740002,
+  "peak_equity": 253.78448641740002,
   "halted_today": false,
   "positions": {
     "WMT": {
@@ -10,35 +10,26 @@
       "entry_confidence": 0.936,
       "high_water_mark": 106.16,
       "be_armed": false,
-      "cycles_held": 8,
+      "cycles_held": 9,
       "reversal_streak": 0
     },
     "AAPL": {
       "entry_date_et": "2026-09-09",
       "entry_reason": "shakeout_spring",
       "entry_confidence": 0.82,
-      "high_water_mark": 325.38,
+      "high_water_mark": 326.595,
       "be_armed": true,
-      "cycles_held": 8,
+      "cycles_held": 9,
       "reversal_streak": 0
     },
     "UUP": {
       "entry_date_et": "2026-09-09",
       "entry_reason": "bull_divergence",
       "entry_confidence": 0.78,
-      "high_water_mark": 28.035,
+      "high_water_mark": 28.04,
       "be_armed": false,
-      "cycles_held": 7,
+      "cycles_held": 8,
       "reversal_streak": 0
-    },
-    "AMD": {
-      "entry_date_et": "2026-09-10",
-      "entry_reason": "ml_ensemble",
-      "entry_confidence": 0.864,
-      "high_water_mark": 510.94,
-      "be_armed": false,
-      "cycles_held": 6,
-      "reversal_streak": 4
     },
     "MSFT": {
       "entry_date_et": "2026-09-09",
@@ -46,7 +37,7 @@
       "entry_confidence": 1.0,
       "high_water_mark": 493.69,
       "be_armed": false,
-      "cycles_held": 8,
+      "cycles_held": 9,
       "reversal_streak": 0
     },
     "XLE": {
@@ -55,9 +46,18 @@
       "entry_confidence": 0.988,
       "high_water_mark": 65.46,
       "be_armed": false,
-      "cycles_held": 8,
+      "cycles_held": 9,
+      "reversal_streak": 0
+    },
+    "USO": {
+      "entry_date_et": "2026-09-11",
+      "entry_reason": "ml_ensemble",
+      "entry_confidence": 0.998,
+      "high_water_mark": 153.08,
+      "be_armed": false,
+      "cycles_held": 0,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-09-10T19:36:00Z"
+  "last_run_utc": "2026-09-11T13:36:00Z"
 }
