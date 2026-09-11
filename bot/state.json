@@ -10,16 +10,16 @@
       "entry_confidence": 0.936,
       "high_water_mark": 106.16,
       "be_armed": false,
-      "cycles_held": 10,
+      "cycles_held": 11,
       "reversal_streak": 0
     },
     "AAPL": {
       "entry_date_et": "2026-09-09",
       "entry_reason": "shakeout_spring",
       "entry_confidence": 0.82,
-      "high_water_mark": 326.595,
+      "high_water_mark": 334.96,
       "be_armed": true,
-      "cycles_held": 10,
+      "cycles_held": 11,
       "reversal_streak": 0
     },
     "USO": {
@@ -27,7 +27,7 @@
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.998,
       "high_water_mark": 154.3,
-      "be_armed": true,
+      "be_armed": false,
       "cycles_held": 1,
       "reversal_streak": 0
     },
@@ -37,7 +37,7 @@
       "entry_confidence": 0.78,
       "high_water_mark": 28.04,
       "be_armed": false,
-      "cycles_held": 9,
+      "cycles_held": 10,
       "reversal_streak": 0
     },
     "MSFT": {
@@ -46,7 +46,7 @@
       "entry_confidence": 1.0,
       "high_water_mark": 493.69,
       "be_armed": false,
-      "cycles_held": 10,
+      "cycles_held": 11,
       "reversal_streak": 0
     },
     "XLE": {
@@ -55,9 +55,9 @@
       "entry_confidence": 0.988,
       "high_water_mark": 65.46,
       "be_armed": false,
-      "cycles_held": 10,
+      "cycles_held": 11,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-09-11T14:36:00Z"
+  "last_run_utc": "2026-09-11T15:36:00Z"
 }
