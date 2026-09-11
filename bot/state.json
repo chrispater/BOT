@@ -8,9 +8,9 @@
       "entry_date_et": "2026-09-09",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.936,
-      "high_water_mark": 106.175,
+      "high_water_mark": 106.5401,
       "be_armed": false,
-      "cycles_held": 12,
+      "cycles_held": 13,
       "reversal_streak": 0
     },
     "USO": {
@@ -19,8 +19,8 @@
       "entry_confidence": 0.998,
       "high_water_mark": 154.3,
       "be_armed": false,
-      "cycles_held": 2,
-      "reversal_streak": 0
+      "cycles_held": 3,
+      "reversal_streak": 1
     },
     "UUP": {
       "entry_date_et": "2026-09-09",
@@ -28,16 +28,16 @@
       "entry_confidence": 0.78,
       "high_water_mark": 28.0501,
       "be_armed": false,
-      "cycles_held": 11,
+      "cycles_held": 12,
       "reversal_streak": 0
     },
     "MSFT": {
       "entry_date_et": "2026-09-09",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 1.0,
-      "high_water_mark": 494.565,
+      "high_water_mark": 495.29,
       "be_armed": false,
-      "cycles_held": 12,
+      "cycles_held": 13,
       "reversal_streak": 0
     },
     "XLE": {
@@ -46,9 +46,9 @@
       "entry_confidence": 0.988,
       "high_water_mark": 65.46,
       "be_armed": false,
-      "cycles_held": 12,
+      "cycles_held": 13,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-09-11T16:36:00Z"
+  "last_run_utc": "2026-09-11T17:36:00Z"
 }
