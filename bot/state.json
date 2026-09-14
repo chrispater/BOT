@@ -8,9 +8,9 @@
       "entry_date_et": "2026-09-14",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.999,
-      "high_water_mark": 761.75,
+      "high_water_mark": 762.9,
       "be_armed": false,
-      "cycles_held": 3,
+      "cycles_held": 4,
       "reversal_streak": 0
     },
     "USO": {
@@ -19,27 +19,27 @@
       "entry_confidence": 0.998,
       "high_water_mark": 159.125,
       "be_armed": true,
-      "cycles_held": 8,
+      "cycles_held": 9,
       "reversal_streak": 0
     },
     "TLT": {
       "entry_date_et": "2026-09-14",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.824,
-      "high_water_mark": 81.2336,
+      "high_water_mark": 81.245,
       "be_armed": false,
-      "cycles_held": 3,
-      "reversal_streak": 1
+      "cycles_held": 4,
+      "reversal_streak": 2
     },
     "MSFT": {
       "entry_date_et": "2026-09-14",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.988,
-      "high_water_mark": 504.055,
+      "high_water_mark": 505.37,
       "be_armed": false,
-      "cycles_held": 3,
+      "cycles_held": 4,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-09-14T16:36:00Z"
+  "last_run_utc": "2026-09-14T17:36:00Z"
 }
