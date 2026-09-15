@@ -4,23 +4,32 @@
   "peak_equity": 274.49028230349995,
   "halted_today": false,
   "positions": {
+    "NVDA": {
+      "entry_date_et": "2026-09-15",
+      "entry_reason": "ml_ensemble",
+      "entry_confidence": 0.945,
+      "high_water_mark": 211.9598,
+      "be_armed": false,
+      "cycles_held": 1,
+      "reversal_streak": 0
+    },
     "SPY": {
       "entry_date_et": "2026-09-14",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.999,
       "high_water_mark": 762.9,
       "be_armed": false,
-      "cycles_held": 7,
+      "cycles_held": 8,
       "reversal_streak": 0
     },
     "USO": {
       "entry_date_et": "2026-09-11",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.998,
-      "high_water_mark": 160.81,
+      "high_water_mark": 163.05,
       "be_armed": true,
-      "cycles_held": 12,
-      "reversal_streak": 0
+      "cycles_held": 13,
+      "reversal_streak": 1
     },
     "TLT": {
       "entry_date_et": "2026-09-14",
@@ -28,27 +37,9 @@
       "entry_confidence": 0.824,
       "high_water_mark": 81.245,
       "be_armed": false,
-      "cycles_held": 7,
-      "reversal_streak": 0
-    },
-    "MSFT": {
-      "entry_date_et": "2026-09-14",
-      "entry_reason": "ml_ensemble",
-      "entry_confidence": 0.988,
-      "high_water_mark": 507.95,
-      "be_armed": false,
-      "cycles_held": 7,
-      "reversal_streak": 1
-    },
-    "NVDA": {
-      "entry_date_et": "2026-09-15",
-      "entry_reason": "ml_ensemble",
-      "entry_confidence": 0.945,
-      "high_water_mark": 211.5399,
-      "be_armed": false,
-      "cycles_held": 0,
+      "cycles_held": 8,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-09-15T17:14:09Z"
+  "last_run_utc": "2026-09-15T19:20:03Z"
 }
