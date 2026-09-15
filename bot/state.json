@@ -8,9 +8,9 @@
       "entry_date_et": "2026-09-15",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.945,
-      "high_water_mark": 211.9598,
+      "high_water_mark": 212.1101,
       "be_armed": false,
-      "cycles_held": 1,
+      "cycles_held": 2,
       "reversal_streak": 0
     },
     "SPY": {
@@ -19,7 +19,7 @@
       "entry_confidence": 0.999,
       "high_water_mark": 762.9,
       "be_armed": false,
-      "cycles_held": 8,
+      "cycles_held": 9,
       "reversal_streak": 0
     },
     "USO": {
@@ -28,8 +28,8 @@
       "entry_confidence": 0.998,
       "high_water_mark": 163.05,
       "be_armed": true,
-      "cycles_held": 13,
-      "reversal_streak": 1
+      "cycles_held": 14,
+      "reversal_streak": 0
     },
     "TLT": {
       "entry_date_et": "2026-09-14",
@@ -37,9 +37,9 @@
       "entry_confidence": 0.824,
       "high_water_mark": 81.245,
       "be_armed": false,
-      "cycles_held": 8,
+      "cycles_held": 9,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-09-15T19:20:03Z"
+  "last_run_utc": "2026-09-15T19:36:00Z"
 }
