@@ -8,9 +8,9 @@
       "entry_date_et": "2026-09-15",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.945,
-      "high_water_mark": 215.45,
+      "high_water_mark": 216.02,
       "be_armed": false,
-      "cycles_held": 5,
+      "cycles_held": 6,
       "reversal_streak": 0
     },
     "SPY": {
@@ -19,7 +19,7 @@
       "entry_confidence": 0.999,
       "high_water_mark": 762.9,
       "be_armed": false,
-      "cycles_held": 12,
+      "cycles_held": 13,
       "reversal_streak": 0
     },
     "USO": {
@@ -28,16 +28,16 @@
       "entry_confidence": 0.998,
       "high_water_mark": 163.05,
       "be_armed": true,
-      "cycles_held": 17,
+      "cycles_held": 18,
       "reversal_streak": 0
     },
     "AMZN": {
       "entry_date_et": "2026-09-16",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.983,
-      "high_water_mark": 247.46,
+      "high_water_mark": 247.78,
       "be_armed": false,
-      "cycles_held": 2,
+      "cycles_held": 3,
       "reversal_streak": 0
     },
     "TLT": {
@@ -46,9 +46,9 @@
       "entry_confidence": 0.824,
       "high_water_mark": 81.245,
       "be_armed": false,
-      "cycles_held": 12,
+      "cycles_held": 13,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-09-16T15:36:00Z"
+  "last_run_utc": "2026-09-16T17:36:00Z"
 }
