@@ -8,20 +8,20 @@
       "entry_date_et": "2026-09-15",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.945,
-      "high_water_mark": 216.02,
-      "be_armed": false,
-      "cycles_held": 7,
+      "high_water_mark": 219.13,
+      "be_armed": true,
+      "cycles_held": 8,
       "reversal_streak": 0
     },
     "AMZN": {
       "entry_date_et": "2026-09-16",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.983,
-      "high_water_mark": 247.78,
+      "high_water_mark": 251.49,
       "be_armed": false,
-      "cycles_held": 4,
+      "cycles_held": 5,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-09-17T15:38:34Z"
+  "last_run_utc": "2026-09-17T15:36:00Z"
 }
