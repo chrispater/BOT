@@ -3,16 +3,6 @@
   "start_of_day_equity": 274.0802170308,
   "peak_equity": 275.06302953499994,
   "halted_today": false,
-  "positions": {
-    "NVDA": {
-      "entry_date_et": "2026-09-15",
-      "entry_reason": "ml_ensemble",
-      "entry_confidence": 0.945,
-      "high_water_mark": 219.13,
-      "be_armed": true,
-      "cycles_held": 10,
-      "reversal_streak": 1
-    }
-  },
-  "last_run_utc": "2026-09-17T18:14:35Z"
+  "positions": {},
+  "last_run_utc": "2026-09-17T18:54:39Z"
 }
