@@ -10,18 +10,9 @@
       "entry_confidence": 0.945,
       "high_water_mark": 219.13,
       "be_armed": true,
-      "cycles_held": 9,
-      "reversal_streak": 0
-    },
-    "AMZN": {
-      "entry_date_et": "2026-09-16",
-      "entry_reason": "ml_ensemble",
-      "entry_confidence": 0.983,
-      "high_water_mark": 252.42,
-      "be_armed": false,
-      "cycles_held": 6,
+      "cycles_held": 10,
       "reversal_streak": 1
     }
   },
-  "last_run_utc": "2026-09-17T16:36:00Z"
+  "last_run_utc": "2026-09-17T18:14:35Z"
 }
