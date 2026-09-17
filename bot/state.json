@@ -1,7 +1,7 @@
 {
-  "date_et": "2026-09-16",
-  "start_of_day_equity": 273.63166973499995,
-  "peak_equity": 273.732992365,
+  "date_et": "2026-09-17",
+  "start_of_day_equity": 274.0802170308,
+  "peak_equity": 275.06302953499994,
   "halted_today": false,
   "positions": {
     "NVDA": {
@@ -10,25 +10,7 @@
       "entry_confidence": 0.945,
       "high_water_mark": 216.02,
       "be_armed": false,
-      "cycles_held": 6,
-      "reversal_streak": 0
-    },
-    "SPY": {
-      "entry_date_et": "2026-09-14",
-      "entry_reason": "ml_ensemble",
-      "entry_confidence": 0.999,
-      "high_water_mark": 762.9,
-      "be_armed": false,
-      "cycles_held": 13,
-      "reversal_streak": 0
-    },
-    "USO": {
-      "entry_date_et": "2026-09-11",
-      "entry_reason": "ml_ensemble",
-      "entry_confidence": 0.998,
-      "high_water_mark": 163.05,
-      "be_armed": true,
-      "cycles_held": 18,
+      "cycles_held": 7,
       "reversal_streak": 0
     },
     "AMZN": {
@@ -37,18 +19,9 @@
       "entry_confidence": 0.983,
       "high_water_mark": 247.78,
       "be_armed": false,
-      "cycles_held": 3,
-      "reversal_streak": 0
-    },
-    "TLT": {
-      "entry_date_et": "2026-09-14",
-      "entry_reason": "ml_ensemble",
-      "entry_confidence": 0.824,
-      "high_water_mark": 81.245,
-      "be_armed": false,
-      "cycles_held": 13,
+      "cycles_held": 4,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-09-16T17:36:00Z"
+  "last_run_utc": "2026-09-17T15:38:34Z"
 }
