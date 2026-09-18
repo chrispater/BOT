@@ -1,0 +1,45 @@
+{
+  "date_et": "2026-09-18",
+  "start_of_day_equity": 274.83000000000004,
+  "peak_equity": 279.961105665,
+  "halted_today": false,
+  "positions": {
+    "WMT": {
+      "entry_date_et": "2026-09-18",
+      "entry_reason": "ml_ensemble",
+      "entry_confidence": 0.623,
+      "high_water_mark": 107.56,
+      "be_armed": false,
+      "cycles_held": 6,
+      "reversal_streak": 0
+    },
+    "AAPL": {
+      "entry_date_et": "2026-09-18",
+      "entry_reason": "breakout_long",
+      "entry_confidence": 0.78,
+      "high_water_mark": 336.8899,
+      "be_armed": false,
+      "cycles_held": 6,
+      "reversal_streak": 0
+    },
+    "COIN": {
+      "entry_date_et": "2026-09-18",
+      "entry_reason": "ml_ensemble",
+      "entry_confidence": 0.849,
+      "high_water_mark": 196.04,
+      "be_armed": true,
+      "cycles_held": 6,
+      "reversal_streak": 2
+    },
+    "TLT": {
+      "entry_date_et": "2026-09-18",
+      "entry_reason": "breakout_long",
+      "entry_confidence": 0.8,
+      "high_water_mark": 81.3899,
+      "be_armed": false,
+      "cycles_held": 6,
+      "reversal_streak": 1
+    }
+  },
+  "last_run_utc": "2026-09-18T19:31:00Z"
+}
