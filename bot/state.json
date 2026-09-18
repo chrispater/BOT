@@ -10,7 +10,7 @@
       "entry_confidence": 0.623,
       "high_water_mark": 107.32,
       "be_armed": false,
-      "cycles_held": 3,
+      "cycles_held": 4,
       "reversal_streak": 0
     },
     "AAPL": {
@@ -19,17 +19,17 @@
       "entry_confidence": 0.78,
       "high_water_mark": 336.8899,
       "be_armed": false,
-      "cycles_held": 3,
+      "cycles_held": 4,
       "reversal_streak": 0
     },
     "COIN": {
       "entry_date_et": "2026-09-18",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.849,
-      "high_water_mark": 192.7,
+      "high_water_mark": 194.5435,
       "be_armed": true,
-      "cycles_held": 3,
-      "reversal_streak": 1
+      "cycles_held": 4,
+      "reversal_streak": 0
     },
     "TLT": {
       "entry_date_et": "2026-09-18",
@@ -37,9 +37,9 @@
       "entry_confidence": 0.8,
       "high_water_mark": 81.3899,
       "be_armed": false,
-      "cycles_held": 3,
+      "cycles_held": 4,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-09-18T16:36:00Z"
+  "last_run_utc": "2026-09-18T17:36:00Z"
 }
