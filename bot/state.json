@@ -1,8 +1,45 @@
 {
-  "date_et": "2026-09-17",
-  "start_of_day_equity": 274.0802170308,
-  "peak_equity": 275.06302953499994,
+  "date_et": "2026-09-18",
+  "start_of_day_equity": 274.83000000000004,
+  "peak_equity": 274.83000000000004,
   "halted_today": false,
-  "positions": {},
-  "last_run_utc": "2026-09-17T19:36:00Z"
+  "positions": {
+    "COIN": {
+      "entry_date_et": "2026-09-18",
+      "entry_reason": "ml_ensemble",
+      "entry_confidence": 0.849,
+      "high_water_mark": 180.5399,
+      "be_armed": false,
+      "cycles_held": 0,
+      "reversal_streak": 0
+    },
+    "TLT": {
+      "entry_date_et": "2026-09-18",
+      "entry_reason": "breakout_long",
+      "entry_confidence": 0.8,
+      "high_water_mark": 81.3899,
+      "be_armed": false,
+      "cycles_held": 0,
+      "reversal_streak": 0
+    },
+    "AAPL": {
+      "entry_date_et": "2026-09-18",
+      "entry_reason": "breakout_long",
+      "entry_confidence": 0.78,
+      "high_water_mark": 336.8899,
+      "be_armed": false,
+      "cycles_held": 0,
+      "reversal_streak": 0
+    },
+    "WMT": {
+      "entry_date_et": "2026-09-18",
+      "entry_reason": "ml_ensemble",
+      "entry_confidence": 0.623,
+      "high_water_mark": 107.2699,
+      "be_armed": false,
+      "cycles_held": 0,
+      "reversal_streak": 0
+    }
+  },
+  "last_run_utc": "2026-09-18T13:38:13Z"
 }
