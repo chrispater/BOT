@@ -1,16 +1,16 @@
 {
   "date_et": "2026-09-21",
   "start_of_day_equity": 1426.97542569,
-  "peak_equity": 1434.85079726,
+  "peak_equity": 1439.619395467,
   "halted_today": false,
   "positions": {
     "ETHA": {
       "entry_date_et": "2026-09-21",
       "entry_reason": "breakout_long",
       "entry_confidence": 0.8,
-      "high_water_mark": 20.875,
+      "high_water_mark": 20.885,
       "be_armed": false,
-      "cycles_held": 5,
+      "cycles_held": 6,
       "reversal_streak": 0
     },
     "NVDA": {
@@ -19,34 +19,16 @@
       "entry_confidence": 0.8,
       "high_water_mark": 227.64,
       "be_armed": false,
-      "cycles_held": 5,
-      "reversal_streak": 2
-    },
-    "WMT": {
-      "entry_date_et": "2026-09-18",
-      "entry_reason": "ml_ensemble",
-      "entry_confidence": 0.623,
-      "high_water_mark": 107.675,
-      "be_armed": false,
-      "cycles_held": 13,
-      "reversal_streak": 0
-    },
-    "AAPL": {
-      "entry_date_et": "2026-09-18",
-      "entry_reason": "breakout_long",
-      "entry_confidence": 0.78,
-      "high_water_mark": 339.0,
-      "be_armed": false,
-      "cycles_held": 13,
+      "cycles_held": 6,
       "reversal_streak": 0
     },
     "MSTR": {
       "entry_date_et": "2026-09-21",
       "entry_reason": "breakout_long",
       "entry_confidence": 0.8,
-      "high_water_mark": 166.8011,
+      "high_water_mark": 168.95,
       "be_armed": false,
-      "cycles_held": 5,
+      "cycles_held": 6,
       "reversal_streak": 0
     },
     "COIN": {
@@ -55,9 +37,29 @@
       "entry_confidence": 0.849,
       "high_water_mark": 205.49,
       "be_armed": true,
-      "cycles_held": 6,
-      "reversal_streak": 0
+      "cycles_held": 7,
+      "reversal_streak": 1
+    },
+    "WMT": {
+      "entry_date_et": "2026-09-18",
+      "entry_reason": "ml_ensemble",
+      "entry_confidence": 0.623,
+      "high_water_mark": 107.675,
+      "be_armed": false,
+      "cycles_held": 14,
+      "reversal_streak": 0,
+      "exit_pending": "time_stop"
+    },
+    "AAPL": {
+      "entry_date_et": "2026-09-18",
+      "entry_reason": "breakout_long",
+      "entry_confidence": 0.78,
+      "high_water_mark": 339.2655,
+      "be_armed": false,
+      "cycles_held": 14,
+      "reversal_streak": 0,
+      "exit_pending": "time_stop"
     }
   },
-  "last_run_utc": "2026-09-21T18:46:00Z"
+  "last_run_utc": "2026-09-21T19:46:00Z"
 }
