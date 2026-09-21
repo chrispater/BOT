@@ -8,18 +8,18 @@
       "entry_date_et": "2026-09-21",
       "entry_reason": "breakout_long",
       "entry_confidence": 0.8,
-      "high_water_mark": 20.5494,
+      "high_water_mark": 20.645,
       "be_armed": false,
-      "cycles_held": 1,
+      "cycles_held": 2,
       "reversal_streak": 0
     },
     "NVDA": {
       "entry_date_et": "2026-09-21",
       "entry_reason": "breakout_long",
       "entry_confidence": 0.8,
-      "high_water_mark": 223.7305,
+      "high_water_mark": 224.9568,
       "be_armed": false,
-      "cycles_held": 1,
+      "cycles_held": 2,
       "reversal_streak": 0
     },
     "WMT": {
@@ -28,36 +28,36 @@
       "entry_confidence": 0.623,
       "high_water_mark": 107.56,
       "be_armed": false,
-      "cycles_held": 9,
+      "cycles_held": 10,
       "reversal_streak": 0
     },
     "AAPL": {
       "entry_date_et": "2026-09-18",
       "entry_reason": "breakout_long",
       "entry_confidence": 0.78,
-      "high_water_mark": 336.8899,
+      "high_water_mark": 336.98,
       "be_armed": false,
-      "cycles_held": 9,
+      "cycles_held": 10,
+      "reversal_streak": 1
+    },
+    "MSTR": {
+      "entry_date_et": "2026-09-21",
+      "entry_reason": "breakout_long",
+      "entry_confidence": 0.8,
+      "high_water_mark": 166.8011,
+      "be_armed": false,
+      "cycles_held": 2,
       "reversal_streak": 0
     },
     "COIN": {
       "entry_date_et": "2026-09-21",
       "entry_reason": "ml_ensemble+owner_manual",
       "entry_confidence": 0.849,
-      "high_water_mark": 197.68,
-      "be_armed": false,
-      "cycles_held": 2,
-      "reversal_streak": 0
-    },
-    "MSTR": {
-      "entry_date_et": "2026-09-21",
-      "entry_reason": "breakout_long",
-      "entry_confidence": 0.8,
-      "high_water_mark": 166.296,
-      "be_armed": false,
-      "cycles_held": 1,
+      "high_water_mark": 205.49,
+      "be_armed": true,
+      "cycles_held": 3,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-09-21T14:32:00Z"
+  "last_run_utc": "2026-09-21T15:31:00Z"
 }
