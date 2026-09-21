@@ -10,25 +10,25 @@
       "entry_confidence": 0.8,
       "high_water_mark": 20.875,
       "be_armed": false,
-      "cycles_held": 3,
+      "cycles_held": 4,
       "reversal_streak": 0
     },
     "NVDA": {
       "entry_date_et": "2026-09-21",
       "entry_reason": "breakout_long",
       "entry_confidence": 0.8,
-      "high_water_mark": 226.31,
+      "high_water_mark": 227.155,
       "be_armed": false,
-      "cycles_held": 3,
-      "reversal_streak": 0
+      "cycles_held": 4,
+      "reversal_streak": 1
     },
     "WMT": {
       "entry_date_et": "2026-09-18",
       "entry_reason": "ml_ensemble",
       "entry_confidence": 0.623,
-      "high_water_mark": 107.615,
+      "high_water_mark": 107.675,
       "be_armed": false,
-      "cycles_held": 11,
+      "cycles_held": 12,
       "reversal_streak": 0
     },
     "AAPL": {
@@ -37,8 +37,8 @@
       "entry_confidence": 0.78,
       "high_water_mark": 338.7799,
       "be_armed": false,
-      "cycles_held": 11,
-      "reversal_streak": 0
+      "cycles_held": 12,
+      "reversal_streak": 1
     },
     "MSTR": {
       "entry_date_et": "2026-09-21",
@@ -46,7 +46,7 @@
       "entry_confidence": 0.8,
       "high_water_mark": 166.8011,
       "be_armed": false,
-      "cycles_held": 3,
+      "cycles_held": 4,
       "reversal_streak": 0
     },
     "COIN": {
@@ -55,9 +55,9 @@
       "entry_confidence": 0.849,
       "high_water_mark": 205.49,
       "be_armed": true,
-      "cycles_held": 4,
+      "cycles_held": 5,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-09-21T16:32:00Z"
+  "last_run_utc": "2026-09-21T17:32:00Z"
 }
