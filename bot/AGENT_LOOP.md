@@ -50,11 +50,21 @@ If `state.halted_today` is true → STOP (commit state, end turn quietly).
    45 then 30 days (never below 30).
 4. For `strategy.regime_symbol` (SPY): `get_equity_historicals`, interval `day`,
    last 120 days.
-5. Build `input.json` in the schema documented at the top of
+5. `get_equity_quotes` for every held symbol → `quotes` as
+   `{symbol: last_trade_price}`. REQUIRED whenever positions are open: exits are
+   evaluated against these, not the last closed bar. The hourly feed often has
+   no same-day bar until an hour or two into the session, and on 2026-09-21 that
+   made the engine read MSTR's Friday close as its current price and emit a
+   stop_loss at a fabricated -7.45% on a position that was down 0.24%. Quotes are
+   capped at 20 symbols per call; batch if needed. Include any symbol likely to be
+   entered too, so a new position seeds its high-water mark from a real price.
+   If quotes are unavailable, say so in the cycle summary — the engine falls back
+   to bar closes and exit prices may be stale.
+6. Build `input.json` in the schema documented at the top of
    `bot/strategy/run_cycle.py`: today's ET date, config, state, portfolio,
    positions, the parsed lines of `bot/trade_log.jsonl` as `trade_history`, hourly
    bars per symbol (oldest first, RFC3339 timestamps), SPY daily bars as
-   `regime_bars`.
+   `regime_bars`, and `quotes`.
 
 ## 3. Run the decision engine
 

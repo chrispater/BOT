@@ -15,8 +15,18 @@ Input snapshot schema (built by the agent session from MCP tool results):
   "trade_history": [{"event": "sell", "pnl_pct": 1.2, ...}, ...],  # trade_log.jsonl lines
   "bars": {"IBIT": [{"t": "2026-07-01T14:30:00Z", "o": 1, "h": 1,
                      "l": 1, "c": 1, "v": 100}, ...], ...},        # hourly, oldest first
-  "regime_bars": [{...}]                                           # SPY daily, oldest first
+  "regime_bars": [{...}],                                          # SPY daily, oldest first
+  "quotes": {"IBIT": 59.12, ...}                                   # optional live prices
 }
+
+`quotes` carries last_trade_price from get_equity_quotes. Exit evaluation
+uses it in preference to the last closed bar, and a new entry seeds its
+high-water mark from it. Supply one for every held symbol, and for any
+symbol that may be entered, whenever quotes are available: the hourly bar
+feed often has no same-day bar until an hour or two into the session, and
+evaluating exits against a stale bar produces false stops. Omitting the
+field falls back to bar closes, which is the pre-2026-09-21 behaviour.
+Signals are unaffected — they need the bar series and stay bar-based.
 
 Output: decisions dict from engine.run() — exits, entries, halt,
 state_updates, diagnostics.

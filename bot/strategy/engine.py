@@ -223,6 +223,27 @@ def entry_ev(confidence: float, closed_trades: list, tp_pct: float,
 
 # ── Exit engine (port of _exit_logic, long-only, no leverage/fees) ───────────
 
+def clean_quotes(raw) -> dict:
+    """Sanitise the optional live-quote map {symbol: last_trade_price}.
+
+    Exit evaluation prefers a live quote over the last closed bar, because a
+    bar can be stale: the hourly feed routinely has no same-day bar until an
+    hour or two into the session, and on 2026-09-21 that gap made the engine
+    read MSTR's Friday close of 153.91 as the current price against a 166.30
+    fill and emit a stop_loss at a fabricated -7.45%. A quote that is absent,
+    non-numeric or non-positive is dropped so the bar close still applies.
+    """
+    out = {}
+    for sym, px in (raw or {}).items():
+        try:
+            px = float(px)
+        except (TypeError, ValueError):
+            continue
+        if np.isfinite(px) and px > 0:
+            out[sym] = px
+    return out
+
+
 def exit_decision(pos_meta: dict, avg_cost: float, price: float,
                   signal: int, confidence: float, cfg: dict, held_today: bool):
     """
@@ -333,6 +354,7 @@ def run(snapshot: dict) -> dict:
 
     held = {p['symbol']: p for p in snapshot.get('positions', [])}
     state_positions = state.get('positions', {})
+    quotes = clean_quotes(snapshot.get('quotes'))
 
     # ── Per-symbol signal computation ────────────────────────────────────────
     signals = {}
@@ -380,7 +402,17 @@ def run(snapshot: dict) -> dict:
         meta.setdefault('entry_date_et', today_et)
         sig = signals.get(symbol, {})
         avg_cost = float(pos.get('average_buy_price') or 0.0)
-        price = sig.get('price') or avg_cost
+        bar_price = sig.get('price') or avg_cost
+        # Live quote wins for exit evaluation; the bar close is the fallback.
+        price = quotes.get(symbol, bar_price)
+        price_source = 'quote' if symbol in quotes else 'bar'
+        diag = decisions['diagnostics']['symbols'].setdefault(symbol, {})
+        diag['exit_price'] = price
+        diag['exit_price_source'] = price_source
+        if price_source == 'quote' and bar_price > 0:
+            # Surface how far the bar had drifted — this is the staleness that
+            # produced false stops while exits were evaluated on bars alone.
+            diag['bar_vs_quote_pct'] = round((bar_price / price - 1) * 100, 2)
         should_exit, reason, meta = exit_decision(
             meta, avg_cost, price, sig.get('signal', 0), sig.get('confidence', 0.0),
             cfg, held_today=(meta.get('entry_date_et') == today_et))
@@ -434,10 +466,14 @@ def run(snapshot: dict) -> dict:
             'symbol': symbol, 'dollar_amount': f"{size:.2f}",
             'confidence': round(s['confidence'], 3),
             'reason': s['setup'] or 'ml_ensemble', 'ev': round(ev, 4)})
+        # Seed the high-water mark from the live quote when there is one. The
+        # last closed bar predates the fill by definition, so using it planted
+        # a mark the position had never traded at and had to be corrected by
+        # hand every entry while the morning bar feed lagged.
         decisions['state_updates']['positions'][symbol] = {
             'entry_date_et': today_et, 'entry_reason': s['setup'] or 'ml_ensemble',
             'entry_confidence': round(s['confidence'], 3),
-            'high_water_mark': s['price'], 'be_armed': False,
+            'high_water_mark': quotes.get(symbol, s['price']), 'be_armed': False,
             'cycles_held': 0, 'reversal_streak': 0}
         slots -= 1
         cash_left -= size
