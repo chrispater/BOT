@@ -155,6 +155,80 @@ def test_entry_hwm_falls_back_without_quote():
     print('ok  entry seeding falls back to the bar close without a quote')
 
 
+# ── Entry signal-to-quote gap haircut ────────────────────────────────────────
+
+def _entry_snapshot(signal_price, quote, ev=0.0256):
+    """A forced buy candidate at a known signal price and live quote."""
+    snap = _snapshot({'AAPL': quote} if quote else None)
+    snap['portfolio']['buying_power'] = 5000.0
+    snap['portfolio']['equity'] = 1428.0
+    snap['bars']['AAPL'] = _bars(signal_price)
+    snap['_ev'] = ev
+    return snap
+
+
+def _run_entry(snap):
+    real = (engine.ensemble, engine.entry_filter, engine.entry_ev)
+    engine.ensemble = lambda *a, **k: (1, 0.99)
+    engine.entry_filter = lambda *a, **k: (True, '')
+    engine.entry_ev = lambda *a, **k: snap['_ev']
+    try:
+        return engine.run(snap)
+    finally:
+        engine.ensemble, engine.entry_filter, engine.entry_ev = real
+
+
+def test_gap_beyond_ev_blocks_entry():
+    """The MSTR case: an +8.05% gap against a 2.56% EV must not be bought."""
+    snap = _entry_snapshot(signal_price=153.9086, quote=166.296, ev=0.0256)
+    out = _run_entry(snap)
+    assert not any(e['symbol'] == 'AAPL' for e in out['entries']), \
+        f'entry must be blocked when the gap exceeds EV; got {out["entries"]}'
+    why = out['diagnostics']['symbols']['AAPL']['entry_blocked']
+    assert 'gap' in why and 'EV' in why, why
+    print(f'ok  gap beyond EV blocks the entry ({why})')
+
+
+def test_partial_gap_downsizes():
+    """A gap that eats half the edge should roughly halve the position."""
+    full = _run_entry(_entry_snapshot(100.0, None, ev=0.04))
+    base = float([e for e in full['entries'] if e['symbol'] == 'AAPL'][0]['dollar_amount'])
+    half = _run_entry(_entry_snapshot(100.0, 102.0, ev=0.04))   # +2% gap vs 4% EV
+    got = [e for e in half['entries'] if e['symbol'] == 'AAPL'][0]
+    assert abs(float(got['dollar_amount']) - base * 0.5) < 0.05, \
+        f'expected ~half of {base}, got {got["dollar_amount"]}'
+    assert got['gap_pct'] == 2.0 and got['gap_scale'] == 0.5
+    print(f'ok  a half-edge gap halves the size ({base} -> {got["dollar_amount"]})')
+
+
+def test_favourable_gap_not_penalised():
+    """Buying below the signal price is good news; size must not shrink."""
+    base = float([e for e in _run_entry(_entry_snapshot(100.0, None, ev=0.04))
+                  ['entries'] if e['symbol'] == 'AAPL'][0]['dollar_amount'])
+    out = _run_entry(_entry_snapshot(100.0, 97.0, ev=0.04))     # quote below signal
+    got = [e for e in out['entries'] if e['symbol'] == 'AAPL'][0]
+    assert float(got['dollar_amount']) == base, \
+        f'favourable gap must not change size; {got["dollar_amount"]} vs {base}'
+    assert got['gap_scale'] == 1.0
+    print('ok  a favourable gap is not penalised')
+
+
+def test_no_quote_means_no_haircut():
+    """Without quotes the sizing is exactly the pre-change behaviour."""
+    out = _run_entry(_entry_snapshot(100.0, None, ev=0.04))
+    got = [e for e in out['entries'] if e['symbol'] == 'AAPL'][0]
+    assert got['gap_pct'] == 0.0 and got['gap_scale'] == 1.0
+    print('ok  no quote means no haircut (unchanged behaviour)')
+
+
+def test_gap_floor_prevents_dust_positions():
+    """A gap just under EV still leaves a tradeable size, not dust."""
+    out = _run_entry(_entry_snapshot(100.0, 103.9, ev=0.04))    # +3.9% vs 4% EV
+    got = [e for e in out['entries'] if e['symbol'] == 'AAPL'][0]
+    assert got['gap_scale'] == 0.5, f'floor should hold at 0.5, got {got["gap_scale"]}'
+    print('ok  the scale floor prevents dust-sized entries')
+
+
 if __name__ == '__main__':
     test_stale_bar_alone_would_false_stop()
     test_live_quote_prevents_false_stop()
@@ -162,4 +236,9 @@ if __name__ == '__main__':
     test_bad_quotes_fall_back_to_bar()
     test_entry_seeds_hwm_from_quote()
     test_entry_hwm_falls_back_without_quote()
+    test_gap_beyond_ev_blocks_entry()
+    test_partial_gap_downsizes()
+    test_favourable_gap_not_penalised()
+    test_no_quote_means_no_haircut()
+    test_gap_floor_prevents_dust_positions()
     print('\nall live-quote pricing tests passed')

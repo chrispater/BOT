@@ -453,11 +453,38 @@ def run(snapshot: dict) -> dict:
         if ev <= 0:
             decisions['diagnostics']['symbols'][symbol]['entry_blocked'] = f"EV {ev:.4f} <= 0"
             continue
+
+        # ── Signal-to-quote gap haircut ─────────────────────────────────────
+        # `ev` is modelled at the signal's bar price. If the live quote has
+        # already run above that, some of the modelled edge was captured
+        # before we could buy. On 2026-09-18 MSTR's signal was computed at
+        # 153.91 and filled at 166.30 — a +8.05% gap against a 2.56% EV, so
+        # the entry had no modelled edge left at the price actually paid.
+        # An adverse gap is scaled against the edge; a favourable one (quote
+        # below the signal price) is left alone rather than rewarded.
+        gap = 0.0
+        quote = quotes.get(symbol)
+        if quote and s['price'] > 0:
+            gap = (quote - s['price']) / s['price']
+        gap_scale = 1.0
+        if gap > 0:
+            max_ratio = float(cfg.get('entry_max_gap_ratio', 1.0))
+            if gap >= ev * max_ratio:
+                decisions['diagnostics']['symbols'][symbol]['entry_blocked'] = (
+                    f"gap {gap:.2%} >= {max_ratio:g}x EV {ev:.2%}")
+                continue
+            # Size on the edge that survives the gap, with a floor so a small
+            # gap does not shrink a position into insignificance.
+            gap_scale = max((ev - gap) / ev, float(cfg.get('entry_gap_min_scale', 0.5)))
+        decisions['diagnostics']['symbols'][symbol]['entry_gap_pct'] = round(gap * 100, 2)
+
         # Owner directive 2026-07-16: flat sizing at max_position_pct of equity.
         # The Kelly/adaptive/volatility/regime shrink multipliers are bypassed
         # for sizing (still computed in diagnostics); drawdown protection now
         # acts only through the max_drawdown entry block and daily stop.
-        size = min(equity * risk['max_position_pct_of_equity'] / 100.0, cash_left)
+        # The gap haircut above is not one of those governors — it corrects the
+        # premise that `ev` still holds at the price we can actually transact.
+        size = min(equity * risk['max_position_pct_of_equity'] / 100.0 * gap_scale, cash_left)
         size = float(np.floor(size * 100) / 100)
         if size < cfg_all['min_order_usd']:
             decisions['diagnostics']['symbols'][symbol]['entry_blocked'] = f"size ${size:.2f} < min"
@@ -465,7 +492,8 @@ def run(snapshot: dict) -> dict:
         decisions['entries'].append({
             'symbol': symbol, 'dollar_amount': f"{size:.2f}",
             'confidence': round(s['confidence'], 3),
-            'reason': s['setup'] or 'ml_ensemble', 'ev': round(ev, 4)})
+            'reason': s['setup'] or 'ml_ensemble', 'ev': round(ev, 4),
+            'gap_pct': round(gap * 100, 2), 'gap_scale': round(gap_scale, 3)})
         # Seed the high-water mark from the live quote when there is one. The
         # last closed bar predates the fill by definition, so using it planted
         # a mark the position had never traded at and had to be corrected by
