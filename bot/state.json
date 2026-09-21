@@ -1,52 +1,16 @@
 {
   "date_et": "2026-09-21",
   "start_of_day_equity": 1426.97542569,
-  "peak_equity": 1426.97542569,
+  "peak_equity": 1429.3030504374,
   "halted_today": false,
   "positions": {
-    "WMT": {
-      "entry_date_et": "2026-09-18",
-      "entry_reason": "ml_ensemble",
-      "entry_confidence": 0.623,
-      "high_water_mark": 107.56,
-      "be_armed": false,
-      "cycles_held": 8,
-      "reversal_streak": 0
-    },
-    "AAPL": {
-      "entry_date_et": "2026-09-18",
-      "entry_reason": "breakout_long",
-      "entry_confidence": 0.78,
-      "high_water_mark": 336.8899,
-      "be_armed": false,
-      "cycles_held": 8,
-      "reversal_streak": 0
-    },
-    "COIN": {
-      "entry_date_et": "2026-09-21",
-      "entry_reason": "ml_ensemble+owner_manual",
-      "entry_confidence": 0.849,
-      "high_water_mark": 197.68,
-      "be_armed": false,
-      "cycles_held": 1,
-      "reversal_streak": 0
-    },
     "ETHA": {
       "entry_date_et": "2026-09-21",
       "entry_reason": "breakout_long",
       "entry_confidence": 0.8,
       "high_water_mark": 20.5494,
       "be_armed": false,
-      "cycles_held": 0,
-      "reversal_streak": 0
-    },
-    "MSTR": {
-      "entry_date_et": "2026-09-21",
-      "entry_reason": "breakout_long",
-      "entry_confidence": 0.8,
-      "high_water_mark": 166.296,
-      "be_armed": false,
-      "cycles_held": 0,
+      "cycles_held": 1,
       "reversal_streak": 0
     },
     "NVDA": {
@@ -55,9 +19,45 @@
       "entry_confidence": 0.8,
       "high_water_mark": 223.7305,
       "be_armed": false,
-      "cycles_held": 0,
+      "cycles_held": 1,
+      "reversal_streak": 0
+    },
+    "WMT": {
+      "entry_date_et": "2026-09-18",
+      "entry_reason": "ml_ensemble",
+      "entry_confidence": 0.623,
+      "high_water_mark": 107.56,
+      "be_armed": false,
+      "cycles_held": 9,
+      "reversal_streak": 0
+    },
+    "AAPL": {
+      "entry_date_et": "2026-09-18",
+      "entry_reason": "breakout_long",
+      "entry_confidence": 0.78,
+      "high_water_mark": 336.8899,
+      "be_armed": false,
+      "cycles_held": 9,
+      "reversal_streak": 0
+    },
+    "COIN": {
+      "entry_date_et": "2026-09-21",
+      "entry_reason": "ml_ensemble+owner_manual",
+      "entry_confidence": 0.849,
+      "high_water_mark": 197.68,
+      "be_armed": false,
+      "cycles_held": 2,
+      "reversal_streak": 0
+    },
+    "MSTR": {
+      "entry_date_et": "2026-09-21",
+      "entry_reason": "breakout_long",
+      "entry_confidence": 0.8,
+      "high_water_mark": 166.296,
+      "be_armed": false,
+      "cycles_held": 1,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-09-21T13:39:31Z"
+  "last_run_utc": "2026-09-21T14:32:00Z"
 }
