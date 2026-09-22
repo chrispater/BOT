@@ -102,12 +102,20 @@ def row(r, proj):
 
 def main():
     sigdir, outfile = sys.argv[1], sys.argv[2]
+    # Optional third arg 'nolatch': rerun the same grid with the recent-
+    # expectancy entry block disabled. Added AFTER the first run showed that
+    # block latching shut in most variants — it isolates the five items from
+    # the timing of the latch, and is reported alongside, not instead of,
+    # the pre-committed grid.
+    nolatch = len(sys.argv) > 3 and sys.argv[3] == 'nolatch'
     allsig = load_signals(sigdir, EXPANDED)
     prepared = prepare(allsig)
     sel_base, sel_scores = static_selection(allsig, BASE)
     main_grid, split_grid = grid(sel_base)
     results = []
     for p in main_grid + split_grid:
+        if nolatch and not p.name.startswith('V0x'):
+            p.expectancy_block = False
         r = run(prepared, p)
         results.append(row(r, project(r['daily_returns'])))
         print(f"{p.name:34} end ${r['end']:>10,.2f}  {r['ret']:+8.2%}  dd {r['max_dd']:+7.2%}  "
