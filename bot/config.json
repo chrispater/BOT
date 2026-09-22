@@ -18,7 +18,7 @@
     "trailing_stop_pct": 4.0,
     "breakeven_arm_pct": 2.5,
     "breakeven_floor_pct": 0.5,
-    "time_stop_hours": 14,
+    "time_stop_hours": null,
     "min_hold_hours": 3,
     "reversal_confirm_cycles": 2,
     "max_drawdown_pct": 25,

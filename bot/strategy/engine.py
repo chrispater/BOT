@@ -253,6 +253,7 @@ def exit_decision(pos_meta: dict, avg_cost: float, price: float,
          round-trip into a loser.
       3. Trailing stop — retrace from the high-water mark while in profit.
       4. Time stop — never armed within time_stop_hours of market time.
+         Disabled while time_stop_hours is null (owner instruction 2026-09-22).
       5. Signal reversal — entry-grade bearish confidence, min hold,
          2 consecutive cycles (hysteresis).
     Cash-account GFV guard: same-day exits are allowed ONLY for stop_loss
@@ -286,7 +287,15 @@ def exit_decision(pos_meta: dict, avg_cost: float, price: float,
         return (not deferred), 'trailing_stop', meta
 
     meta['cycles_held'] = int(meta.get('cycles_held', 0)) + 1
-    if not meta.get('be_armed') and meta['cycles_held'] >= cfg['time_stop_hours']:
+    # Time stop — disabled when time_stop_hours is null, absent or non-positive.
+    # Retired by owner instruction 2026-09-22 after it proved a net drag: over 20
+    # closed trades it averaged -0.45% and cost -9.06% in total, while
+    # signal_reversal earned +0.54% across 26. It was cutting positions that had
+    # not worked yet rather than limiting losses. cycles_held keeps counting
+    # either way, because min_hold_hours and the reversal hysteresis read it.
+    time_stop = cfg.get('time_stop_hours')
+    if time_stop and time_stop > 0 \
+            and not meta.get('be_armed') and meta['cycles_held'] >= time_stop:
         return (not deferred), 'time_stop', meta
 
     if signal == -1 and confidence >= cfg['min_confidence'] \
