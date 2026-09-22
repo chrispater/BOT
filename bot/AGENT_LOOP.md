@@ -44,10 +44,13 @@ If `state.halted_today` is true → STOP (commit state, end turn quietly).
 1. `get_portfolio` → equity (`total_value`), `buying_power.buying_power`.
 2. `get_equity_positions` → open positions (symbol, quantity,
    `shares_available_for_sells`, `average_buy_price`).
-3. For every symbol in `config.universe` PLUS every held symbol not in the
-   universe: `get_equity_historicals`, interval `hour`, regular bounds, from
-   `strategy.history_days` days ago to now. If the bar cap is exceeded, narrow to
-   45 then 30 days (never below 30).
+3. For every symbol in `config.universe` — plus `config.universe_expansion`
+   when `config.universe_expansion_enabled` is true (65 symbols, 7 batches of
+   ≤10) — PLUS every held symbol not in those lists: `get_equity_historicals`,
+   interval `hour`, regular bounds, from `strategy.history_days` days ago to now.
+   If the bar cap is exceeded, narrow to 45 then 30 days (never below 30).
+   The engine only opens new positions in that active universe; held symbols
+   outside it are still fetched so their exits are managed.
 4. For `strategy.regime_symbol` (SPY): `get_equity_historicals`, interval `day`,
    last 120 days.
 5. `get_equity_quotes` for every held symbol → `quotes` as

@@ -34,6 +34,11 @@ def _bars(last_close: float, n: int = 90) -> pd.DataFrame:
 
 def _snapshot(quotes=None):
     cfg = json.load(open('bot/config.json'))
+    # These tests pin price mechanics (exit pricing, HWM seeding, the gap
+    # haircut) on synthetic bars, whose model cannot validate. The symbol-level
+    # validation gate would correctly refuse every such entry, so it is off
+    # here; test_replication_changes.py covers the gate itself.
+    cfg['strategy']['entry_requires_validation'] = False
     snap = {
         'today_et': '2026-09-21',
         'config': cfg,

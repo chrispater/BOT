@@ -58,6 +58,7 @@ class Params:
     slippage: float = 0.001              # per side, applied to every fill
     time_stop_hours: float = None
     expectancy_block: bool = True
+    expectancy_expiry_days: int = None   # None = the original permanent latch
     max_pos_pct: float = 25.0
     max_open: int = 15
     start_equity: float = 1441.11
@@ -254,10 +255,9 @@ def run(prepared: list, p: Params) -> dict:
 
         closed = [t for t in trades if t['event'] == 'sell']
         entries_blocked = None
-        exp = engine.recent_expectancy(closed)
         if peak > 0 and (peak - E) / peak > cfg['max_drawdown_pct'] / 100:
             entries_blocked = 'drawdown'
-        elif p.expectancy_block and exp is not None and exp <= 0:
+        elif p.expectancy_block and engine.expectancy_block(closed, d, p.expectancy_expiry_days):
             entries_blocked = 'expectancy'
             blocked_by_expectancy += 1
         max_pos = p.max_open

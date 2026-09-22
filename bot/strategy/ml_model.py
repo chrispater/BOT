@@ -96,6 +96,31 @@ def create_labels(df: pd.DataFrame, forward_periods: int = 5,
     return df
 
 
+def validation_verdict(pooled_returns, folds_run: int, min_expectancy: float = 0.0,
+                       min_folds: int = 2, min_pooled: int = 40) -> tuple:
+    """
+    The walk-forward gate's decision, given the pooled OOS per-bar returns.
+
+    `min_expectancy` is the round-trip trading cost the edge must clear. At 0
+    this is the original gross gate: any positive expectancy validates, which
+    admitted models whose whole edge was smaller than the slippage paid to
+    trade it. The 2026-09-22 replication backtest (bot/research/REPORT.md)
+    found charging the cost here to be the one robust improvement: +40.5%
+    against +4.4% for the gross gate over 148 out-of-sample days, positive in
+    both halves independently and still +32.4% at doubled slippage.
+    """
+    n = len(pooled_returns)
+    if folds_run < min_folds or n < min_pooled:
+        return False, f'not validated ({n} OOS bars, {folds_run} folds — need {min_pooled}/{min_folds})'
+    expectancy = float(np.mean(pooled_returns))
+    if expectancy <= 0:
+        return False, f'not validated (negative OOS expectancy {expectancy:.4f} over {n} bars, {folds_run} folds)'
+    if expectancy <= min_expectancy:
+        return False, (f'not validated (OOS expectancy {expectancy:.4f} does not clear '
+                       f'cost {min_expectancy:.4f} over {n} bars, {folds_run} folds)')
+    return True, f'validated (expectancy {expectancy:.4f} over {n} bars, {folds_run} folds)'
+
+
 class MLStream:
     """Train-and-predict wrapper for one symbol's bar history."""
 
@@ -103,11 +128,12 @@ class MLStream:
     MIN_FOLDS = 2            # require the edge to show up across >1 fold, not one lucky window
 
     def __init__(self, forward_periods: int = 5, threshold: float = 0.004,
-                 sl_price: float = 0.05, seed: int = 42):
+                 sl_price: float = 0.05, seed: int = 42, min_expectancy: float = 0.0):
         self.forward_periods = forward_periods
         self.threshold = threshold
         self.sl_price = sl_price
         self.seed = seed
+        self.min_expectancy = min_expectancy
         self.model = None
         self.trained = False
         self.validated = False
@@ -193,13 +219,8 @@ class MLStream:
             pooled_returns.extend((preds[valid] * fut_ret[valid]).tolist())
             folds_run += 1
 
-        pooled_trades = len(pooled_returns)
-        if folds_run < self.MIN_FOLDS or pooled_trades < self.MIN_POOLED_TRADES:
-            return False, f'not validated ({pooled_trades} OOS bars, {folds_run} folds — need {self.MIN_POOLED_TRADES}/{self.MIN_FOLDS})'
-        expectancy = float(np.mean(pooled_returns))
-        if expectancy <= 0:
-            return False, f'not validated (negative OOS expectancy {expectancy:.4f} over {pooled_trades} bars, {folds_run} folds)'
-        return True, f'validated (expectancy {expectancy:.4f} over {pooled_trades} bars, {folds_run} folds)'
+        return validation_verdict(pooled_returns, folds_run, self.min_expectancy,
+                                  self.MIN_FOLDS, self.MIN_POOLED_TRADES)
 
     def predict(self, df_ind: pd.DataFrame):
         """Predict on the last closed bar. Returns (signal in {-1,0,1}, confidence 0-1).

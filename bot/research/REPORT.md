@@ -137,3 +137,40 @@ target.
 - **Hindsight in the additions.** They were chosen in 2026 by names that are
   liquid and active in 2026.
 - **Short borrow costs** are ignored.
+
+## 5. Implemented (owner instruction 2026-09-22)
+
+The owner said *"implement all three, dormant and reversible with tests."*
+Each change is a `bot/config.json` switch, and each switch restores the
+pre-change behaviour exactly.
+
+| Change | Switch | Revert |
+|---|---|---|
+| Expectancy block becomes a cooldown | `strategy.expectancy_block_expiry_days: 3` | `null` = permanent latch |
+| Validation charges round-trip cost | `strategy.validation_cost_pct: 0.2` | `0` = gross gate |
+| Entries require a validated model | `strategy.entry_requires_validation: true` | `false` |
+| 65-symbol entry universe | `universe_expansion_enabled: true` | `false` = 33 core |
+
+**Why 3 days.** The cooldown length was chosen by a rule fixed before
+looking: take the longest cooldown that doesn't materially hurt either half
+versus no block, on the deployed configuration.
+
+| Block | Full | H1 | H2 | @0.2% | Max DD |
+|---|---:|---:|---:|---:|---:|
+| none | +50.6% | +16.1% | +25.1% | +39.6% | −6.1% |
+| latch (before) | +12.5% | +12.6% | +12.0% | +5.3% | −6.6% |
+| **3-day cooldown (deployed)** | **+53.5%** | **+15.1%** | **+30.7%** | **+33.8%** | **−9.2%** |
+| 5-day | +31.8% | +14.1% | +31.1% | +18.0% | −6.8% |
+
+2 days scored highest (+63.5%) and was not chosen; picking the best cell is
+exactly the overfitting the rule exists to prevent.
+
+**Operational costs.** One live cycle now runs 49 s of engine time instead of
+~25 s. The historicals fetch goes from 4 batches to 7.
+
+**Tests.**
+- `bot/strategy/test_replication_changes.py`: 18 tests, one pair per change
+  (enabled behaviour, and the switch restoring the old one). They also check
+  that today's live history does not trip the block.
+- The existing suites still pass. `test_quote_pricing` disables the entry
+  gate locally, because its synthetic bars cannot validate.

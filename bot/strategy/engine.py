@@ -12,6 +12,8 @@ plain price %), shorts (bearish signals veto entries / pressure exits),
 maker-taker fees (replaced by a slippage buffer), funding, 24/7 sessions.
 """
 
+from datetime import date
+
 import numpy as np
 import pandas as pd
 
@@ -162,6 +164,76 @@ def recent_expectancy(closed_trades: list):
     if len(recent) < 20:
         return None
     return sum(t['pnl_pct'] for t in recent) / len(recent)
+
+
+def active_universe(cfg_all: dict):
+    """Symbols eligible for NEW entries, or None when no universe is configured.
+
+    `universe` is the core list; `universe_expansion` is added when
+    `universe_expansion_enabled` is true. Held positions outside it are still
+    exit-managed — this only decides what may be bought. Turning the flag off
+    returns entries to the core list with no code change.
+    """
+    core = list(cfg_all.get('universe') or [])
+    if cfg_all.get('universe_expansion_enabled'):
+        core += [s for s in cfg_all.get('universe_expansion') or [] if s not in core]
+    return set(core) or None
+
+
+def _trade_date(t: dict):
+    """Close date of a trade-log record, or None if it carries no usable date.
+    Live log lines use 'ts' (UTC ISO); the backtest uses 'exit_date'. Sells
+    only happen in regular hours, so the UTC and ET dates agree."""
+    for key in ('exit_date', 'ts', 'timestamp_utc', 'date_et'):
+        v = t.get(key)
+        if v is None:
+            continue
+        if isinstance(v, date):
+            return v
+        try:
+            return date.fromisoformat(str(v)[:10])
+        except ValueError:
+            continue
+    return None
+
+
+def expectancy_block(closed_trades: list, today, expiry_days=None):
+    """
+    Entry block from recent realized expectancy, as a reason string or None.
+
+    Blocks while the last 20 closes average <= 0 — but, when `expiry_days` is
+    set, only until that many calendar days have passed since the most recent
+    close. Then it lifts, entries resume, and the next trades decide whether it
+    re-arms.
+
+    Without an expiry the block latches permanently: entries are the only
+    source of new closes, so a block on entries freezes the window that
+    decides the block. The 2026-09-22 replication backtest found it blocked
+    entries at 787 of ~886 decision points in the live-engine replica, which
+    sat flat for months. `expiry_days=None` keeps that original behaviour.
+
+    A history with no datable close cannot anchor a cooldown, so it is
+    treated as expired rather than as permanently blocking.
+    """
+    exp = recent_expectancy(closed_trades)
+    if exp is None or exp > 0:
+        return None
+    reason = f"expectancy {exp:+.2f}% <= 0 over last 20 trades"
+    if expiry_days is None:
+        return reason
+    last = None
+    for t in reversed(closed_trades):
+        last = _trade_date(t)
+        if last is not None:
+            break
+    if last is None:
+        return None
+    if isinstance(today, str):
+        today = date.fromisoformat(today[:10])
+    age = (today - last).days
+    if age >= expiry_days:
+        return None
+    return f"{reason} (cooldown, {age}/{expiry_days}d since last close)"
 
 
 def half_kelly_fraction(closed_trades: list, fallback: float, cap: float) -> float:
@@ -345,11 +417,11 @@ def run(snapshot: dict) -> dict:
     # ── Hard drawdown stop (entries only; exits still managed below) ────────
     hard_dd = (peak_equity - equity) / peak_equity if peak_equity > 0 else 0.0
     entries_blocked = None
-    expectancy = recent_expectancy(closed_trades)
+    exp_block = expectancy_block(closed_trades, today_et, cfg.get('expectancy_block_expiry_days'))
     if hard_dd > cfg['max_drawdown_pct'] / 100.0:
         entries_blocked = f"drawdown {hard_dd:.1%} > max {cfg['max_drawdown_pct']}%"
-    elif expectancy is not None and expectancy <= 0:
-        entries_blocked = f"expectancy {expectancy:+.2f}% <= 0 over last 20 trades"
+    elif exp_block:
+        entries_blocked = exp_block
 
     # ── Regime ───────────────────────────────────────────────────────────────
     regime = market_regime(snapshot.get('regime_bars'))
@@ -376,7 +448,8 @@ def run(snapshot: dict) -> dict:
         try:
             df_ind = calculate_indicators(df)
             ml = MLStream(cfg['forward_periods'], cfg['label_threshold'],
-                          risk['per_position_stop_loss_pct'] / 100.0)
+                          risk['per_position_stop_loss_pct'] / 100.0,
+                          min_expectancy=float(cfg.get('validation_cost_pct') or 0.0) / 100.0)
             ml.train(df_ind)
             ml_signal, ml_conf = ml.predict(df_ind)
             se_signal, se_conf, se_reasons = indicator_score(df_ind)
@@ -392,6 +465,7 @@ def run(snapshot: dict) -> dict:
                                'setup': setup_name, 'df': df_ind,
                                'price': float(df_ind['close'].iloc[-1]),
                                'ml': (ml_signal, round(ml_conf, 3), ml.trained),
+                               'ml_validated': bool(ml.validated),
                                'se': (se_signal, round(se_conf, 3))}
             decisions['diagnostics']['symbols'][symbol] = {
                 'signal': signal, 'confidence': round(confidence, 3),
@@ -448,9 +522,23 @@ def run(snapshot: dict) -> dict:
                   and sym not in held]
     candidates.sort(key=lambda kv: kv[1]['confidence'], reverse=True)
 
+    universe = active_universe(cfg_all)
+    require_validation = bool(cfg.get('entry_requires_validation'))
+
     for symbol, s in candidates:
         if slots <= 0 or cash_left < cfg_all['min_order_usd']:
             break
+        if universe is not None and symbol not in universe:
+            decisions['diagnostics']['symbols'][symbol]['entry_blocked'] = 'not in active universe'
+            continue
+        # Symbol-level gate: without it a setup can open a position in a name
+        # whose model just failed validation — which is how ETHA and MSTR were
+        # entered on 2026-09-21. The backtest put the gate's value here, not in
+        # the ML stream alone: +40.5% with it against +35.0% for the cost-aware
+        # ML gate by itself.
+        if require_validation and not s.get('ml_validated'):
+            decisions['diagnostics']['symbols'][symbol]['entry_blocked'] = 'model not validated net of cost'
+            continue
         ok, why = entry_filter(s['df'], cfg['adx_threshold'], cfg['min_volume_ratio'])
         if not ok:
             decisions['diagnostics']['symbols'][symbol]['entry_blocked'] = why
