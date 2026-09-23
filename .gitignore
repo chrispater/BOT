@@ -21,3 +21,7 @@ mobile/node_modules/
 # OS
 .DS_Store
 Thumbs.db
+
+# Per-cycle engine I/O (never committed, per bot/AGENT_LOOP.md step 5)
+input.json
+decisions.json
