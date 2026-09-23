@@ -105,5 +105,21 @@
   "universe_expansion_enabled": true,
   "min_order_usd": 5.0,
   "cash_reserve_usd": 1.0,
-  "order_style": "market_dollar_amount_regular_hours"
+  "order_style": "market_dollar_amount_regular_hours",
+  "crypto": {
+    "enabled": false,
+    "_note": "Crypto lane (2026-09-23): dormant until the 24/7 engine mode is backtested and the owner approves. History via ccxt from history_exchange; its API domain must be allowed in the cloud environment's network settings.",
+    "history_exchange": "coinbaseexchange",
+    "pair_template": "{base}/USD",
+    "pair_overrides": {},
+    "universe": [
+      "BTC",
+      "ETH",
+      "SOL",
+      "XRP",
+      "DOGE"
+    ],
+    "history_days": 60,
+    "sleeve_pct": null
+  }
 }
