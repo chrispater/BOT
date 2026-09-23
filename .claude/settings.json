@@ -7,14 +7,12 @@
       "mcp__Robinhood__get_equity_quotes",
       "mcp__Robinhood__get_equity_orders",
       "mcp__Robinhood__review_equity_order",
-      "mcp__Robinhood__place_equity_order"
-    ],
-    "deny": [
-      "mcp__Robinhood__place_option_order",
+      "mcp__Robinhood__place_equity_order",
       "mcp__Robinhood__review_option_order",
+      "mcp__Robinhood__place_option_order",
       "mcp__Robinhood__exercise_option",
-      "mcp__Robinhood__place_crypto_order",
-      "mcp__Robinhood__preview_crypto_order"
+      "mcp__Robinhood__preview_crypto_order",
+      "mcp__Robinhood__place_crypto_order"
     ]
   }
 }
