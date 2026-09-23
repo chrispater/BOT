@@ -36,7 +36,12 @@ def make_exchange(name: str):
     import ccxt
     if name not in ccxt.exchanges:
         raise HistoryError(f'unknown ccxt exchange {name!r}')
-    return getattr(ccxt, name)({'enableRateLimit': True})
+    ex = getattr(ccxt, name)({'enableRateLimit': True})
+    # ccxt disables trust_env on its requests session, which bypasses the
+    # HTTPS_PROXY / REQUESTS_CA_BUNDLE the cloud environment routes egress
+    # through; the direct path is refused even for allowlisted hosts.
+    ex.session.trust_env = True
+    return ex
 
 
 def fetch_hourly(exchange, pair: str, days: int, now_ms: int = None, page: int = 300) -> list:
