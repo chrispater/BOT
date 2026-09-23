@@ -174,3 +174,39 @@ exactly the overfitting the rule exists to prevent.
   that today's live history does not trip the block.
 - The existing suites still pass. `test_quote_pricing` disables the entry
   gate locally, because its synthetic bars cannot validate.
+
+## 6. Data feed re-validation (2026-09-23)
+
+The broker's hourly bars are incomplete about 29% of the time and leave out
+the 9:30–10:00 opening half hour. `bot/strategy/bars.py` rebuilds hourly bars
+from 5-minute data. `strategy.bar_source` switches the live feed between the
+two. The deployed configuration was replayed on three bar sources over the
+window where real 5-minute history exists (`python -m
+bot.research.compare_bars`):
+
+| bars | return | H1 | H2 | @0.2% slip | max DD | trades | win% | P(loss, 70d) |
+|---|---|---|---|---|---|---|---|---|
+| broker hourly (live) | +28.0% | +15.9% | −5.3% | +29.9% | −9.2% | 136 | 56 | 12% |
+| 5-min, broker clock grid (complete bars, same 10:00 anchor) | +17.1% | +6.4% | −7.3% | +4.8% | −9.2% | 117 | 56 | 23% |
+| 5-min, 9:30-anchored | +8.4% | −6.3% | +8.2% | +1.7% | −17.1% | 111 | 53 | 33% |
+
+Window: 2026-04-24 → 09-23, 105 trading days.
+
+The two changes each cost roughly half of the gap. Making the bars complete
+on the same clock took the result from +28.0% to +17.1%. Moving the anchor to
+9:30 took it on to +8.4%.
+
+**Decision: `bar_source` stays `"hour"`.** The rule was set before the test:
+flip only if the corrected bars do as well or better. They did worse.
+
+The caveat matters more than the decision. The strategy's gates and
+thresholds were all fitted to broker hourly bars. The backtest also prices
+fills off those same defective bars. When the bars are made correct, about
+two fifths of the backtested return disappears, and returns stop holding up
+at double slippage (+4.8% vs +29.9%). So part of the +28.0% is probably an
+artifact of the broker bars, not an edge that exists at real prices. Live
+fills happen at real prices. Treat the broker-bar backtest figures in
+sections 3–4 as an upper bound.
+
+The filler-bar fix in `bot/tools/build_snapshot.py` is independent of this
+result and stays live.
