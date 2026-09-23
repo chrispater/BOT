@@ -210,3 +210,41 @@ sections 3–4 as an upper bound.
 
 The filler-bar fix in `bot/tools/build_snapshot.py` is independent of this
 result and stays live.
+
+## 7. Cross-asset lead-lag study (2026-09-23)
+
+Owner idea: one asset's move might predict another's. It was tested in two
+stages. A discovery agent worked only on data up to 2026-06-30, and a
+held-out period (2026-07-01 onward) was kept back for an independent
+verifier.
+
+There were five families, all specified before any results were seen:
+
+- A: crypto overnight → crypto-linked equities.
+- B: crypto's last 1–3h → equities' next hour.
+- C: equity session → crypto overnight.
+- D: weekend crypto → Monday.
+- E: BTC → other coins.
+
+Every rule was tradeable as the bot actually trades: long-only, entry
+after the signal is known, net of 0.20% (equity) / 0.40% (crypto)
+round-trip cost.
+
+**Result: nothing survived.** There were 1,080 tests: the original 648
+plus a rerun of A, B and D on genuine 5-minute bars with a 9:50 ET entry.
+The smallest Benjamini–Hochberg q was 1.0, and fewer tests cleared
+p < 0.05 than chance alone would produce.
+
+The near-misses were:
+
+- BTC-down → crypto stocks, which is ordinary dip-buying (SPY/QQQ's own
+  move works as well as a signal).
+- XRP overnight → XRP ETFs, a steady correlation of about 0.2 that is
+  too weak after costs and sits in thinly traded ETFs.
+- BTC → coins next hour, where the typical move is about the size of the
+  cost.
+
+The holdout was never used, so it stays clean for a future study.
+
+**Caveat:** only 89 sessions were usable, so this is "no evidence", not
+"no effect". Code and results are in `bot/research/leadlag/`.
