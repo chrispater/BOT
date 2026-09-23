@@ -30,7 +30,8 @@
     "entry_gap_min_scale": 0.5,
     "regime_symbol": "SPY",
     "history_days": 60,
-    "bar_interval": "hour"
+    "bar_interval": "hour",
+    "bar_source": "hour"
   },
   "universe": [
     "IBIT",

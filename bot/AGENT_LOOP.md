@@ -47,7 +47,11 @@ If `state.halted_today` is true → STOP (commit state, end turn quietly).
 3. For every symbol in `config.universe` — plus `config.universe_expansion`
    when `config.universe_expansion_enabled` is true (65 symbols, 7 batches of
    ≤10) — PLUS every held symbol not in those lists: `get_equity_historicals`,
-   interval `hour`, regular bounds, from `strategy.history_days` days ago to now.
+   regular bounds, from `strategy.history_days` days ago to now, at the interval
+   `strategy.bar_source` names: `hour` fetches the broker's hourly bars;
+   `5minute` fetches 5-minute bars, which the builder in step 6 aggregates into
+   9:30-anchored hourly bars. (The broker's own hourly bars are incomplete about
+   29% of the time and omit the 9:30 open — see `bot/strategy/bars.py`.)
    If the bar cap is exceeded, narrow to 45 then 30 days (never below 30).
    The engine only opens new positions in that active universe; held symbols
    outside it are still fetched so their exits are managed.
@@ -63,11 +67,13 @@ If `state.halted_today` is true → STOP (commit state, end turn quietly).
    entered too, so a new position seeds its high-water mark from a real price.
    If quotes are unavailable, say so in the cycle summary — the engine falls back
    to bar closes and exit prices may be stale.
-6. Build `input.json` in the schema documented at the top of
-   `bot/strategy/run_cycle.py`: today's ET date, config, state, portfolio,
-   positions, the parsed lines of `bot/trade_log.jsonl` as `trade_history`, hourly
-   bars per symbol (oldest first, RFC3339 timestamps), SPY daily bars as
-   `regime_bars`, and `quotes`.
+6. Build `input.json` with `python -m bot.tools.build_snapshot spec.json`, where
+   the spec lists the saved historicals result files, the SPY daily file,
+   equity, buying power, positions and quotes (format in the module docstring).
+   The builder drops the broker's synthetic `interpolated` filler bars, applies
+   `strategy.bar_source`, and writes the schema documented at the top of
+   `bot/strategy/run_cycle.py`. Its one-line report names the bar source, the
+   filler dropped and the latest bar — put that in the cycle summary.
 
 ## 3. Run the decision engine
 
