@@ -8,7 +8,12 @@ expectancy cooldown, 65 symbols) on both bar sources over the SAME window —
 the span where real 5-minute history exists — so the only difference
 between the rows is the data.
 
-    python -m bot.research.compare_bars <sig_hourly_dir> <sig_5min_dir>
+    python -m bot.research.compare_bars <sig_hourly_dir> <sig_5min_dir> [<sig_5min_clock_dir>]
+
+The optional third source rebuilds complete hourly bars from 5-minute data
+on the broker's own clock grid (10:00…15:00 ET, opening half hour left out),
+which separates the two changes the 9:30 aggregation makes at once:
+completeness and anchoring.
 """
 
 import sys
@@ -26,6 +31,8 @@ def main():
     mid = str(days[len(days) // 2])
     preps = {'broker hourly': prepare(load_signals(hourly_dir, EXPANDED)),
              '5-min aggregated': prepare(s5)}
+    if len(sys.argv) > 3:
+        preps['5-min, clock grid'] = prepare(load_signals(sys.argv[3], EXPANDED))
     print(f'common window {start} -> {end} ({len(days)} trading days), halves split at {mid}\n')
 
     deployed = dict(universe=tuple(EXPANDED), gate='net', entry_gate='validated',
