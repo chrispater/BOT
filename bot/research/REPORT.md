@@ -248,3 +248,32 @@ The holdout was never used, so it stays clean for a future study.
 
 **Caveat:** only 89 sessions were usable, so this is "no evidence", not
 "no effect". Code and results are in `bot/research/leadlag/`.
+
+## 8. Crypto lane backtest (2026-09-23) — FAILS, lane stays off
+
+The same engine and deployed rules were replayed point-in-time on Coinbase
+hourly bars for BTC, ETH, SOL, XRP and DOGE. The window was 2026-01-27 →
+09-23, 240 days. The account was modelled as a 25% sleeve (~$355) with
+instant settlement and 0.20% cost per side.
+
+Go-live bar, set before the run: profitable net of costs, positive in both
+halves, profitable at double cost, and drawdown no worse than equities.
+
+| Variant | Return | H1 | H2 | @2x cost | Max DD | Trades | Win% |
+|---|---|---|---|---|---|---|---|
+| Deployed rules (cost-aware validation gate) | 0.0% | 0.0% | 0.0% | 0.0% | 0.0% | 0 | — |
+| Gate removed (diagnostic) | −26.0% | −27.6% | −10.7% | −37.7% | −34.2% | 176 | 40 |
+
+BTC buy-and-hold over the same window returned −4.5%.
+
+**Why it fails:** the model's out-of-sample edge per trade on crypto
+hourly bars averages −0.01% (median −0.01%, 99th percentile +0.15%,
+maximum +0.20%). No symbol cleared the validation gate on any of 1,200
+symbol-days, even at the equity cost of 0.20%. The gate did its job by
+blocking every trade. Without it, the engine loses 26%.
+
+**Takeaway:** the engine has no edge on crypto at this horizon. Hourly
+crypto moves are about the size of Robinhood's spread. A crypto lane
+would need a different horizon (4h or daily bars, where moves are large
+relative to cost) or a different signal, tested against the same bar.
+`config.crypto.enabled` stays false.
