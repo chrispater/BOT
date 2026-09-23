@@ -496,9 +496,12 @@ def run(snapshot: dict) -> dict:
             # Surface how far the bar had drifted — this is the staleness that
             # produced false stops while exits were evaluated on bars alone.
             diag['bar_vs_quote_pct'] = round((bar_price / price - 1) * 100, 2)
+        # Crypto settles instantly with no GFV rule, so the crypto lane sets
+        # instant_settlement and same-day exits are never deferred.
+        held_today = (meta.get('entry_date_et') == today_et) and not cfg.get('instant_settlement')
         should_exit, reason, meta = exit_decision(
             meta, avg_cost, price, sig.get('signal', 0), sig.get('confidence', 0.0),
-            cfg, held_today=(meta.get('entry_date_et') == today_et))
+            cfg, held_today=held_today)
         if should_exit:
             decisions['exits'].append({'symbol': symbol, 'reason': reason,
                                        'quantity': pos['shares_available_for_sells'],

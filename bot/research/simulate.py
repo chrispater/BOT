@@ -51,7 +51,7 @@ class Params:
     entry_gate: str = None               # None | 'validated' | 'tier'
     tier_min: float = 0.0                # min side-specific net OOS expectancy for 'tier'
     static_universe: tuple = None        # fixed entry list (item 2, static form)
-    account: str = 'cash'                # cash | margin
+    account: str = 'cash'                # cash | margin | crypto
     leverage: float = 1.0
     margin_rate: float = 0.06
     shorts: bool = False
@@ -163,6 +163,10 @@ def run(prepared: list, p: Params) -> dict:
     cfg.update(p.cfg_overrides)
     slip = p.slippage
     margin = p.account == 'margin'
+    # Crypto (Robinhood, 2026-09-23 crypto lane): proceeds are spendable at
+    # once and there is no GFV or pattern-day-trader rule, so same-day exits
+    # are never deferred. No borrowing: leverage and shorts stay margin-only.
+    instant = margin or p.account == 'crypto'
     lev = p.leverage if margin else 1.0
     shorts = p.shorts and margin
 
@@ -204,7 +208,7 @@ def run(prepared: list, p: Params) -> dict:
         else:
             proceeds = v['qty'] * fill_px          # qty < 0: buying back is a cash outflow
             pnl = (v['avg'] - fill_px) / v['avg'] * 100
-        if margin or v['side'] == -1:
+        if instant or v['side'] == -1:
             cash_settled += proceeds
         else:
             unsettled.append((next_trading_day(d), proceeds))
@@ -289,7 +293,7 @@ def run(prepared: list, p: Params) -> dict:
                 px_eval, sig_eval = quote, s
             else:
                 px_eval, sig_eval = 2 * v['avg'] - quote, -s
-            defer = same_day and not margin
+            defer = same_day and not instant
             ok, reason, meta = engine.exit_decision(v['meta'], v['avg'], px_eval, sig_eval, c,
                                                     cfg, held_today=defer)
             if ok and margin and same_day:
