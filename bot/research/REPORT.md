@@ -277,3 +277,40 @@ crypto moves are about the size of Robinhood's spread. A crypto lane
 would need a different horizon (4h or daily bars, where moves are large
 relative to cost) or a different signal, tested against the same bar.
 `config.crypto.enabled` stays false.
+
+## 9. Lead-lag round 2: every timeframe (2026-09-24)
+
+This round is the multi-timeframe extension pre-registered in
+`timeframes/PLAN.md` §2. It covers 1h, 4h and 1d bars; lags of 1–3 bars;
+and five pair families (crypto→crypto across all 210 ordered pairs of 15
+coins, crypto→crypto-linked equities, equities→crypto, sector leader→
+followers, and an own-momentum control). Daily data runs 2021–2024; the
+holdout is 2025→ and intraday from 2026-07-01, and it stayed unseen.
+
+**Result: nothing survived 31,380 tests.** The smallest q was 1.0; a
+single discovery needed p ≤ 3.2×10⁻⁶ and the best was 8×10⁻⁴.
+
+The deciding check was a set of shifted-signal placebos, which destroy
+any true lead-lag timing. They produced as many hits as the real grid
+(p < 0.05: 176–193 placebo vs 160 real). What the grid finds is noise.
+
+- **Crypto → crypto:** real 1h cross-coin structure exists but is far
+  smaller than the 0.40% round-trip cost. None of 6,300 1h tests is
+  net-positive, and 25 of 6,300 at 4h are.
+- **Near-misses:**
+  - NVDA → AMD/ARM/SOXL/SMH at 4h: a single 89-session semiconductor
+    rally, and SPY does as well as a signal.
+  - QQQ → SOXL/TQQQ and BTC → MSTR: the target's own momentum.
+- **One regime effect, not a candidate:** crypto reversed its prior-day
+  move after the US close in Feb–Jun 2026 only; it was about zero in
+  2024–25.
+- **Data flags:**
+  - SOXS daily is 10× off in March 2022, outside every replay window used
+    here.
+  - COIN's listing-day bar is bad.
+  - XRP-USD has a 905-day Coinbase gap.
+
+**Conclusion across both rounds (32,460 tests):** at the resolutions and
+costs this bot trades, cross-asset lead-lag offers no exploitable edge.
+The study is closed unless new data appears. Code and results are in
+`bot/research/leadlag/round2/`.
