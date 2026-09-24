@@ -8,6 +8,7 @@ stalled after the engine had already decided. These subcommands are the only
 state writes a cycle needs, so they can be pre-approved once.
 
     python -m bot.tools.cycle_io rollover <today_et> <total_value>
+    python -m bot.tools.cycle_io refs <n>              # n fresh UUID ref_ids, one per line
     python -m bot.tools.cycle_io persist <fills.json>
 
 fills.json (written by the cycle after executing decisions.json):
@@ -23,6 +24,7 @@ saw rather than being retyped.
 
 import json
 import sys
+import uuid
 from datetime import datetime, timezone
 
 STATE = 'bot/state.json'
@@ -52,6 +54,11 @@ def rollover(today_et: str, total_value: float) -> dict:
                'peak_equity': total_value, 'halted_today': False})
     _save_state(st)
     return {'rolled': True, 'date_et': today_et, 'start_of_day_equity': total_value}
+
+
+def refs(n: int) -> list:
+    """Runbook step 4: one fresh UUID ref_id per order, without an ad-hoc script."""
+    return [str(uuid.uuid4()) for _ in range(n)]
 
 
 def persist(fills: dict, decisions: dict, snapshot: dict) -> list:
@@ -111,6 +118,8 @@ def main():
     cmd = sys.argv[1]
     if cmd == 'rollover':
         print(json.dumps(rollover(sys.argv[2], float(sys.argv[3]))))
+    elif cmd == 'refs':
+        print('\n'.join(refs(int(sys.argv[2]))))
     elif cmd == 'persist':
         lines = persist(_load(sys.argv[2]), _load('decisions.json'), _load('input.json'))
         print(json.dumps(lines[-1]))

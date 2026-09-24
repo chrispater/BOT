@@ -25,3 +25,7 @@ Thumbs.db
 # Per-cycle engine I/O (never committed, per bot/AGENT_LOOP.md step 5)
 input.json
 decisions.json
+
+# Team scoreboard holds the owner's other account balances; this repo is public
+# (bot/TEAM_RECAP.md)
+bot/team/

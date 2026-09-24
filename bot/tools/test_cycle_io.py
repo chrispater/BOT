@@ -94,6 +94,13 @@ def test_failed_exit_keeps_position():
     print('ok  an exit that did not fill leaves the position and its state in place')
 
 
+def test_refs_are_fresh_uuids():
+    import uuid
+    r = cycle_io.refs(3)
+    assert len(set(r)) == 3 and all(str(uuid.UUID(x)) == x for x in r)
+    print('ok  refs gives distinct UUID ref_ids')
+
+
 if __name__ == '__main__':
     for name, fn in list(globals().items()):
         if name.startswith('test_') and callable(fn):

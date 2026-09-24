@@ -88,6 +88,9 @@ traceback summary, commit, and report the failure in your final summary.
 
 ## 4. Execute decisions — exits first, then entries
 
+Get the fresh UUID `ref_id`s from `python -m bot.tools.cycle_io refs <n>` (one per
+order; pre-approved, so no ad-hoc script and no permission prompt).
+
 For every item in `decisions.exits`:
 - Market sell, `regular_hours`, quantity = the decision's `quantity`
   (= `shares_available_for_sells`), `time_in_force=gfd`, fresh UUID `ref_id`.
