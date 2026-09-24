@@ -36,7 +36,8 @@ add to, or filter the engine's decisions except where a gate below says to.
 ## 1. Daily rollover
 
 If `state.date_et` ≠ today (ET): call `get_portfolio`; set `state.date_et` = today,
-`state.start_of_day_equity` = `total_value`, `state.halted_today` = false.
+`state.start_of_day_equity` = `total_value`, `state.halted_today` = false
+(`python -m bot.tools.cycle_io rollover <today_et> <total_value>` does exactly this).
 If `state.halted_today` is true → STOP (commit state, end turn quietly).
 
 ## 2. Gather the snapshot (MCP tools, read-only)
@@ -106,6 +107,12 @@ For every item in `decisions.entries`:
 - If a review reports insufficient buying power, skip the remaining entries.
 
 ## 5. Persist state and log (every cycle that passes gate 0.3)
+
+Write the executed orders to a fills file (format in `bot/tools/cycle_io.py`)
+and run `python -m bot.tools.cycle_io persist <fills.json>`; it applies the
+rules below. It and the commands above are pre-approved in
+`.claude/settings.json`, so an unattended cycle never waits on a permission
+prompt between the engine's decision and the orders.
 
 - Merge `decisions.state_updates` into `bot/state.json`:
   `state.positions` = `decisions.state_updates.positions` (drop exited symbols;

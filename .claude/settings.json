@@ -12,7 +12,19 @@
       "mcp__Robinhood__place_option_order",
       "mcp__Robinhood__exercise_option",
       "mcp__Robinhood__preview_crypto_order",
-      "mcp__Robinhood__place_crypto_order"
+      "mcp__Robinhood__place_crypto_order",
+      "Bash(git pull:*)",
+      "Bash(git stash:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git status:*)",
+      "Bash(python -m bot.tools.build_snapshot:*)",
+      "Bash(python -m bot.strategy.run_cycle:*)",
+      "Bash(python -m bot.tools.cycle_io:*)",
+      "Bash(ls:*)",
+      "Bash(TZ=America/New_York date:*)",
+      "Bash(cd /home/user/BOT)"
     ]
   }
 }
