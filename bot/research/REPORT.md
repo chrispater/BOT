@@ -314,3 +314,81 @@ any true lead-lag timing. They produced as many hits as the real grid
 costs this bot trades, cross-asset lead-lag offers no exploitable edge.
 The study is closed unless new data appears. Code and results are in
 `bot/research/leadlag/round2/`.
+
+## 10. Timeframe study: which bar length, per asset and per symbol (2026-09-24)
+
+This follows the pre-registered plan in `timeframes/PLAN.md` §1. The
+engine is unchanged; only bar length, the scaled label threshold and the
+training window vary. Selection was either point-in-time ("adaptive") or
+flagged as hindsight. Code: `tf_precompute.py`, `tf_evaluate.py`.
+
+### Equities (65 symbols, cash account, 0.20% round trip)
+
+**Common window 2026-05-18 → 09-22**, the span where 1h, 2h and 1d
+signals all exist:
+
+| Variant | Return | H1 | H2 | @2x cost | Max DD | Trades | P(loss 70d) |
+|---|---|---|---|---|---|---|---|
+| **Fixed 1h (live)** | **+25.8%** | +4.4% | +14.6% | +10.1% | −9.9% | 120 | 10% |
+| Fixed 2h | −12.8% | −10.0% | +2.3% | −17.2% | −24.0% | 72 | 86% |
+| Fixed 1d | +4.8% | +7.3% | +20.4% | +17.1% | −5.2% | 45 | 50% |
+| Adaptive per-symbol (point-in-time) | +3.0% | +7.1% | −4.0% | −3.7% | −13.8% | 87 | 43% |
+| Hindsight-best TF per symbol (upper bound) | +25.7% | +18.6% | +18.5% | +20.4% | −6.2% | 69 | 3% |
+
+Each half is simulated separately, starting from cash. The two halves
+therefore don't add up to the full-window run, and for fixed 1d the gap
+is large (+7.3% and +20.4% halves against +4.8% for the whole window).
+
+**Wider window 2026-02-20 → 09-22**, 1h vs 1d only:
+
+| Variant | Return | Max DD |
+|---|---|---|
+| Fixed 1h | +53.5% | −9.2% |
+| Fixed 1d | +37.0% | −5.6% |
+| Adaptive | +43.7% | −6.0% |
+| Hindsight | +51.5% | −8.4% |
+
+Fixed 1d over its full year (2025-09-23 → 2026-09-22): +14.4%, H1 −1.9%,
+−3.9% at 2x cost, max DD −17.1%.
+
+**Verdict: stay on 1h.** Nothing beats the live timeframe on return, which
+is adoption criterion 1. Even perfect hindsight about each symbol's best
+timeframe does not beat fixed 1h, so per-symbol timeframe selection has
+nothing to add for equities. Daily bars are more cost-robust but earn
+less, and over a full year they are weak.
+
+### Crypto (15 coins, 25% sleeve, 0.40% round trip)
+
+**Common window 2026-01-27 → 09-22:**
+
+| Variant | Return | H1 | H2 | @2x cost | Max DD | Trades | P(loss 70d) |
+|---|---|---|---|---|---|---|---|
+| Fixed 1h (5 coins) | 0.0% | — | — | — | — | 0 | — |
+| Fixed 4h | −6.0% | −4.4% | +2.3% | −5.8% | −9.9% | 44 | 66% |
+| Fixed 1d | +12.1% | −8.7% | +22.8% | +9.3% | −11.3% | 39 | 33% |
+| Adaptive per-symbol (point-in-time) | −0.4% | −2.4% | +7.7% | −3.3% | −10.3% | 53 | 51% |
+| Hindsight-best TF per coin (upper bound) | +32.4% | +2.4% | +29.3% | +23.3% | −8.0% | 44 | 13% |
+
+Full year: fixed 4h −0.5%; fixed 1d 0.0% with −28.0% max DD.
+
+**Verdict: the crypto lane stays off at every timeframe.** Longer bars let
+the validation gate pass trades, because the moves exceed the cost, but
+nothing is reliably profitable. The daily +12% is entirely the second
+half and fades to zero over a full year.
+
+The gap between hindsight (+32%) and honest point-in-time selection
+(−0.4%) measures exactly how much "best timeframe per coin" would have
+flattered a backtest chosen after the fact.
+
+### Combined with §7–9
+
+Lead-lag found no tradeable edge in 32,460 tests. The timeframe search
+found no timeframe, and no per-symbol choice of timeframe, that beats the
+live 1h engine on stocks. Crypto has no edge net of Robinhood's cost at 1h,
+4h or 1d. The live configuration is already the best one tested. Remaining
+levers are not in signal selection:
+
+- execution (resting stops instead of polled ones; lower fill latency);
+- capital (deposits);
+- continued live measurement against these backtests, which are
+  themselves an upper bound (§6).
