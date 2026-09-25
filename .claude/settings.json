@@ -19,6 +19,7 @@
       "mcp__Robinhood__get_crypto_orders",
       "mcp__Robinhood__get_realized_pnl",
       "Bash(python -m bot.tools.team_recap:*)",
+      "Artifact",
       "Bash(git pull:*)",
       "Bash(git stash:*)",
       "Bash(git add:*)",

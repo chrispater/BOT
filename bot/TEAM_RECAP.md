@@ -50,8 +50,17 @@ user-facing text, mask account numbers to their last 4 digits.
   performance, and no average or ETA is claimed before 3 days are tracked.
 - Send one PushNotification with the headline: team value, % of $1MM, and the
   change since the last recap.
+- Republish the private dashboard (owner's choice, 2026-09-25): Artifact
+  publish with `url` = https://claude.ai/artifact/1VDw4Mzyjfk3zZHy82VxuT and
+  `files` = {"scoreboard.jsonl": {"from": "bot/team/scoreboard.jsonl",
+  "contentType": "text/plain"}}. The page itself (index.html) stays as
+  published; leave it out of the call. Include the link in the recap.
 - Nothing to commit. The scoreboard stays out of this public repo; code or
   runbook changes are committed as usual.
 
-If the container was reset overnight and `bot/team/scoreboard.jsonl` is gone,
-today's snapshot becomes a new baseline. Say so in the report.
+## Restoring history after a reset
+The private dashboard is the durable copy. If `bot/team/scoreboard.jsonl` is
+missing at step 1.3, read it back BEFORE snapshotting: Artifact `read` with the
+dashboard `url` and `path: "scoreboard.jsonl"`, then copy the saved file to
+`bot/team/scoreboard.jsonl`. Only if that also fails does today's snapshot
+become a new baseline. Say so in the report.
