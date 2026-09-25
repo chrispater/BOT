@@ -1,7 +1,7 @@
 {
   "date_et": "2026-09-25",
   "start_of_day_equity": 1513.0074476675,
-  "peak_equity": 1514.44850996,
+  "peak_equity": 1516.6070847074,
   "halted_today": false,
   "positions": {
     "ETHA": {
@@ -10,7 +10,7 @@
       "entry_confidence": 0.8,
       "high_water_mark": 20.885,
       "be_armed": false,
-      "cycles_held": 22,
+      "cycles_held": 23,
       "reversal_streak": 0
     },
     "USO": {
@@ -19,7 +19,7 @@
       "entry_confidence": 0.928,
       "high_water_mark": 154.911,
       "be_armed": true,
-      "cycles_held": 8,
+      "cycles_held": 9,
       "reversal_streak": 0
     },
     "MSTR": {
@@ -28,7 +28,7 @@
       "entry_confidence": 0.8,
       "high_water_mark": 170.18,
       "be_armed": false,
-      "cycles_held": 22,
+      "cycles_held": 23,
       "reversal_streak": 0
     },
     "AMZN": {
@@ -37,7 +37,7 @@
       "entry_confidence": 0.928,
       "high_water_mark": 250.22,
       "be_armed": false,
-      "cycles_held": 8,
+      "cycles_held": 9,
       "reversal_streak": 0
     },
     "IBIT": {
@@ -46,9 +46,9 @@
       "entry_confidence": 0.983,
       "high_water_mark": 49.015,
       "be_armed": false,
-      "cycles_held": 15,
+      "cycles_held": 16,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-09-25T14:38:15Z"
+  "last_run_utc": "2026-09-25T16:24:46Z"
 }
