@@ -10,17 +10,8 @@
       "entry_confidence": 0.8,
       "high_water_mark": 20.885,
       "be_armed": false,
-      "cycles_held": 25,
+      "cycles_held": 26,
       "reversal_streak": 0
-    },
-    "AMZN": {
-      "entry_date_et": "2026-09-23",
-      "entry_reason": "ml_ensemble",
-      "entry_confidence": 0.928,
-      "high_water_mark": 250.6,
-      "be_armed": false,
-      "cycles_held": 11,
-      "reversal_streak": 1
     },
     "IBIT": {
       "entry_date_et": "2026-09-22",
@@ -28,9 +19,9 @@
       "entry_confidence": 0.983,
       "high_water_mark": 49.015,
       "be_armed": false,
-      "cycles_held": 18,
+      "cycles_held": 19,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-09-25T17:45:48Z"
+  "last_run_utc": "2026-09-25T19:04:26Z"
 }
