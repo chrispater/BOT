@@ -1,0 +1,20 @@
+1h: 2026-02-20 -> 2026-09-22, 65 symbols
+2h: 2026-05-18 -> 2026-09-22, 64 symbols
+1d: 2025-09-23 -> 2026-09-22, 55 symbols
+
+common window 2026-05-18 -> 2026-09-22
+
+variant                             return      H1      H2  @2xcost   maxDD trades   winP(loss70)
+fixed 1h                            +25.8%   +4.4%  +14.6%   +10.1%   -9.9%    120   51%      10%
+fixed 2h                            -12.8%  -10.0%   +2.3%   -17.2%  -24.0%     72   42%      86%
+fixed 1d                             +4.8%   +7.3%  +20.4%   +17.1%   -5.2%     45   47%      50%
+adaptive per-symbol (point-in-time)   +3.0%   +7.1%   -4.0%    -3.7%  -13.8%     87   45%      43%
+   adaptive rows by timeframe: {'1d': 552, '1h': 20786, '2h': 4721}
+hindsight best TF (upper bound)     +25.7%  +18.6%  +18.5%   +20.4%   -6.2%     69   58%       3%
+   hindsight picks: {'1h': 31, '1d': 21, '2h': 13}
+
+Each fixed timeframe over its own full out-of-sample window:
+variant                             return      H1      H2  @2xcost   maxDD trades   winP(loss70)
+fixed 1h (2026-02-20..2026-09-22)   +53.5%  +15.1%  +30.7%   +33.8%   -9.2%    196   58%       6%
+fixed 2h (2026-05-18..2026-09-22)   -12.8%  -10.0%   +2.3%   -17.2%  -24.0%     72   42%      86%
+fixed 1d (2025-09-23..2026-09-22)   +14.4%   -1.9%  +24.2%    -3.9%  -17.1%    145   47%      39%

@@ -1,0 +1,394 @@
+# Replication backtest — items 1–5 (2026-09-22)
+
+Owner request: *"pull the full validated/not-validated breakdown across all 33
+universe symbols. add more symbols if needed and backtest items 1-5 to find
+our path forward."*
+
+Nothing in this report changes live trading. Code: `bot/research/`.
+
+## Method
+
+- **Data.** Real hourly bars for 65 symbols, 2025-12-22 → 2026-09-22. That's
+  the 33-symbol live universe plus 32 additions chosen in advance for
+  liquidity and relevance, never by past performance. The additions are 12
+  single names, 7 sector/commodity ETFs, 5 leveraged longs and 8 inverse ETFs.
+  Earlier "hourly" history from the broker is synthetic filler (flat,
+  zero-volume, flagged `interpolated`) and was excluded.
+- **Out-of-sample window.** 2026-02-20 → 2026-09-22, which is 148 trading
+  days and ~886 decision points per symbol. The model used on each day was
+  trained only on the 60 days before it.
+- **Fidelity.** The model, labels, features, walk-forward validation and
+  setups are imported from `bot/strategy/`, not reimplemented. The simulator
+  calls the engine's own `exit_decision`, `entry_ev`, `ensemble` and
+  `recent_expectancy`.
+  - Fills are at the next bar's open ±0.1%, and exits are priced off that
+    open (the live "quote").
+  - Cash-account runs model T+1 settlement and the same-day GFV deferral.
+    Margin runs model the pattern-day-trader cap.
+- **Replica check.** On the final day the replica's validation numbers match
+  the live engine's (TSLA +0.0111 net in both; COIN +0.0098 vs +0.0101).
+- **Tests.** `test_simulate.py`, 7 tests, all passing.
+- **Approximation.** Live retrains every cycle; the backtest retrains once
+  per day.
+
+## 1. Validation census (all 65 symbols, 148 days)
+
+Full table: `census.csv` in the run directory.
+
+- **Live universe today:** 6 of 33 pass the cost-aware gate — TSLA, COIN, USO,
+  MSFT, WMT, AMZN.
+- **Over the whole window:** only **AMD (+0.41%)** and **TSLA (+0.23%)** have
+  mean gross expectancy above the 0.2% round-trip cost. Only 2 of the 33 passed
+  the cost-aware gate on more than half the days.
+- **Across all 65:** 7 clear cost on average — SOXS, TSLQ, SOXL, MARA, TSLL,
+  AMD, TSLA.
+- **The XRP complex** (10 names) is negative on average across the window, not
+  just on the day it was first flagged.
+- **Validation is unstable day to day.** COIN reads +0.98% net today but
+  averages +0.06% and passed on only 38% of days.
+
+**Correction to an earlier claim.** A same-day snapshot is mostly noise. The
+~$118k year-end figure given earlier in this conversation was built on
+today's snapshot of the "1%+ tier" and is retracted.
+
+## 2. Finding outside the five items: the expectancy block latches
+
+`recent_expectancy` blocks entries when the last 20 closed trades average ≤ 0.
+Entries are the only way new trades close, so once it trips it can never
+reopen. In the pre-committed grid it blocked entries at 787 of ~886 decision
+points in the live replica. Most variants show exactly +0.0% in the second
+half: they went flat and stayed flat.
+
+The same failure mode is described in the engine's own comment for the
+win-rate version it replaced. Live has not latched only because recent
+realized trades are net positive. Owner trades count toward that.
+
+The grid was re-run with the block disabled so the items could be compared on
+their merits. Both runs are in `results.json` / `results_nolatch.json`.
+
+## 3. Items 1–5 (latch disabled, live universe unless noted)
+
+| Variant | Return | 1st half | 2nd half | @0.2% slip | Max DD | Trades |
+|---|---:|---:|---:|---:|---:|---:|
+| V0 live replica | +4.4% | +1.9% | +2.0% | +9.0% | −12.6% | 200 |
+| **1 — cost-aware ML gate** | +35.0% | +19.9% | +4.9% | +26.7% | −7.3% | 120 |
+| **2 — enter validated names only (dynamic)** | **+40.5%** | **+15.1%** | **+19.2%** | **+32.4%** | −10.0% | 171 |
+| 2 — static list, honest split¹ | +5.0% | | | | −16.3% | 117 |
+| 3 — tier ≥ 0.5% net | +18.2% | | | | −7.0% | 75 |
+| 3 — tier ≥ 1.0% net | +4.8% | | | | −8.2% | 41 |
+| 4 — margin 1x (no T+1) | +5.7% | | | | −24.3% | 260 |
+| 5 — shorts (margin) | +1.5% | | | | −15.4% | 411 |
+| 5 — inverse ETFs (cash) | +3.7% | | | | −13.0% | 209 |
+| all five stacked | −8.6% | | | | −23.3% | 214 |
+| 2x leverage on the stack | −27.2% | | | | −41.1% | 253 |
+| **E2 — item 2 on 65 symbols** | **+50.6%** | **+16.1%** | **+25.1%** | **+39.6%** | **−6.1%** | 205 |
+| E3 — E2 + 0.5% tier² | +80.9% | +27.0% | +30.5% | +64.0% | −13.3% | 239 |
+
+¹ Selected on Feb 20–Mar 19 and tested after. The live replica made +8.8%
+over the same test window, so the static list did worse.
+² Picked after seeing the grid. 62% of its gains came from three names: SOXS,
+AMD and TSLQ. Two of those are inverse ETFs added for this study.
+
+**Benchmarks, same window, buy-and-hold:** SPY +12.7%, QQQ +23.1%, and an
+equal-weight basket of the 33 live symbols +20.0%. The live strategy lagged
+all three.
+
+**Verdicts**
+
+- **Works, robustly:** item 1 with item 2 in its dynamic form. Only enter
+  names whose cost-aware validation passes that day. It is positive in both
+  halves and survives doubled slippage. Its gains are concentrated in the base
+  universe (85% from three names). Spread across 65 symbols (E2), it has lower
+  drawdown and a top-3 share of 45%.
+- **Does not work here:**
+  - item 2 as a static list, because validation is too unstable to fix a list;
+  - the 1% tier, which is too few trades;
+  - item 4, because PDT absorbs the settlement benefit at this account size;
+  - item 5 shorts;
+  - leverage.
+- **Time stop:** inconclusive. It flips sign between halves and under
+  slippage. Neither the retirement nor a revert is supported by this data.
+- **Stops overshoot.** Polled hourly stops filled at a mean of −7.0% to −7.4%
+  against a −5% trigger. That is a large, recurring drag, and the case for
+  resting intraday stops is stronger than it looked when that idea was
+  shelved.
+
+## 4. Projection to 2026-12-31 (70 trading days, block bootstrap, 20,000 paths)
+
+| Variant | P10 | Median | P90 | Best of 20k | P(loss) | P($1MM) |
+|---|---:|---:|---:|---:|---:|---:|
+| Live replica | $1,317 | $1,466 | $1,635 | $2,079 | 42% | 0 |
+| Item 2 | $1,402 | $1,683 | $2,010 | $2,852 | 14% | 0 |
+| **E2** | **$1,510** | **$1,738** | **$2,016** | $2,856 | **4%** | 0 |
+| E3 | $1,449 | $1,852 | $2,371 | $3,650 | 9% | 0 |
+
+$1MM by year end needs 9.80%/day. The best variant delivered 0.40%/day. No
+path out of 20,000, for any variant, came within a factor of 270 of the
+target.
+
+## Limitations
+
+- **One 7-month window, mostly rising.** Long-biased results partly reflect
+  the market.
+- **Many variants were tested on one window,** so the best row is flattered.
+  Both-halves agreement is the main defence.
+- **Model and fills are simplified:** daily rather than hourly retrains, and
+  0.1%/side slippage with no partial fills.
+- **Hindsight in the additions.** They were chosen in 2026 by names that are
+  liquid and active in 2026.
+- **Short borrow costs** are ignored.
+
+## 5. Implemented (owner instruction 2026-09-22)
+
+The owner said *"implement all three, dormant and reversible with tests."*
+Each change is a `bot/config.json` switch, and each switch restores the
+pre-change behaviour exactly.
+
+| Change | Switch | Revert |
+|---|---|---|
+| Expectancy block becomes a cooldown | `strategy.expectancy_block_expiry_days: 3` | `null` = permanent latch |
+| Validation charges round-trip cost | `strategy.validation_cost_pct: 0.2` | `0` = gross gate |
+| Entries require a validated model | `strategy.entry_requires_validation: true` | `false` |
+| 65-symbol entry universe | `universe_expansion_enabled: true` | `false` = 33 core |
+
+**Why 3 days.** The cooldown length was chosen by a rule fixed before
+looking: take the longest cooldown that doesn't materially hurt either half
+versus no block, on the deployed configuration.
+
+| Block | Full | H1 | H2 | @0.2% | Max DD |
+|---|---:|---:|---:|---:|---:|
+| none | +50.6% | +16.1% | +25.1% | +39.6% | −6.1% |
+| latch (before) | +12.5% | +12.6% | +12.0% | +5.3% | −6.6% |
+| **3-day cooldown (deployed)** | **+53.5%** | **+15.1%** | **+30.7%** | **+33.8%** | **−9.2%** |
+| 5-day | +31.8% | +14.1% | +31.1% | +18.0% | −6.8% |
+
+2 days scored highest (+63.5%) and was not chosen; picking the best cell is
+exactly the overfitting the rule exists to prevent.
+
+**Operational costs.** One live cycle now runs 49 s of engine time instead of
+~25 s. The historicals fetch goes from 4 batches to 7.
+
+**Tests.**
+- `bot/strategy/test_replication_changes.py`: 18 tests, one pair per change
+  (enabled behaviour, and the switch restoring the old one). They also check
+  that today's live history does not trip the block.
+- The existing suites still pass. `test_quote_pricing` disables the entry
+  gate locally, because its synthetic bars cannot validate.
+
+## 6. Data feed re-validation (2026-09-23)
+
+The broker's hourly bars are incomplete about 29% of the time and leave out
+the 9:30–10:00 opening half hour. `bot/strategy/bars.py` rebuilds hourly bars
+from 5-minute data. `strategy.bar_source` switches the live feed between the
+two. The deployed configuration was replayed on three bar sources over the
+window where real 5-minute history exists (`python -m
+bot.research.compare_bars`):
+
+| bars | return | H1 | H2 | @0.2% slip | max DD | trades | win% | P(loss, 70d) |
+|---|---|---|---|---|---|---|---|---|
+| broker hourly (live) | +28.0% | +15.9% | −5.3% | +29.9% | −9.2% | 136 | 56 | 12% |
+| 5-min, broker clock grid (complete bars, same 10:00 anchor) | +17.1% | +6.4% | −7.3% | +4.8% | −9.2% | 117 | 56 | 23% |
+| 5-min, 9:30-anchored | +8.4% | −6.3% | +8.2% | +1.7% | −17.1% | 111 | 53 | 33% |
+
+Window: 2026-04-24 → 09-23, 105 trading days.
+
+The two changes each cost roughly half of the gap. Making the bars complete
+on the same clock took the result from +28.0% to +17.1%. Moving the anchor to
+9:30 took it on to +8.4%.
+
+**Decision: `bar_source` stays `"hour"`.** The rule was set before the test:
+flip only if the corrected bars do as well or better. They did worse.
+
+The caveat matters more than the decision. The strategy's gates and
+thresholds were all fitted to broker hourly bars. The backtest also prices
+fills off those same defective bars. When the bars are made correct, about
+two fifths of the backtested return disappears, and returns stop holding up
+at double slippage (+4.8% vs +29.9%). So part of the +28.0% is probably an
+artifact of the broker bars, not an edge that exists at real prices. Live
+fills happen at real prices. Treat the broker-bar backtest figures in
+sections 3–4 as an upper bound.
+
+The filler-bar fix in `bot/tools/build_snapshot.py` is independent of this
+result and stays live.
+
+## 7. Cross-asset lead-lag study (2026-09-23)
+
+Owner idea: one asset's move might predict another's. It was tested in two
+stages. A discovery agent worked only on data up to 2026-06-30, and a
+held-out period (2026-07-01 onward) was kept back for an independent
+verifier.
+
+There were five families, all specified before any results were seen:
+
+- A: crypto overnight → crypto-linked equities.
+- B: crypto's last 1–3h → equities' next hour.
+- C: equity session → crypto overnight.
+- D: weekend crypto → Monday.
+- E: BTC → other coins.
+
+Every rule was tradeable as the bot actually trades: long-only, entry
+after the signal is known, net of 0.20% (equity) / 0.40% (crypto)
+round-trip cost.
+
+**Result: nothing survived.** There were 1,080 tests: the original 648
+plus a rerun of A, B and D on genuine 5-minute bars with a 9:50 ET entry.
+The smallest Benjamini–Hochberg q was 1.0, and fewer tests cleared
+p < 0.05 than chance alone would produce.
+
+The near-misses were:
+
+- BTC-down → crypto stocks, which is ordinary dip-buying (SPY/QQQ's own
+  move works as well as a signal).
+- XRP overnight → XRP ETFs, a steady correlation of about 0.2 that is
+  too weak after costs and sits in thinly traded ETFs.
+- BTC → coins next hour, where the typical move is about the size of the
+  cost.
+
+The holdout was never used, so it stays clean for a future study.
+
+**Caveat:** only 89 sessions were usable, so this is "no evidence", not
+"no effect". Code and results are in `bot/research/leadlag/`.
+
+## 8. Crypto lane backtest (2026-09-23) — FAILS, lane stays off
+
+The same engine and deployed rules were replayed point-in-time on Coinbase
+hourly bars for BTC, ETH, SOL, XRP and DOGE. The window was 2026-01-27 →
+09-23, 240 days. The account was modelled as a 25% sleeve (~$355) with
+instant settlement and 0.20% cost per side.
+
+Go-live bar, set before the run: profitable net of costs, positive in both
+halves, profitable at double cost, and drawdown no worse than equities.
+
+| Variant | Return | H1 | H2 | @2x cost | Max DD | Trades | Win% |
+|---|---|---|---|---|---|---|---|
+| Deployed rules (cost-aware validation gate) | 0.0% | 0.0% | 0.0% | 0.0% | 0.0% | 0 | — |
+| Gate removed (diagnostic) | −26.0% | −27.6% | −10.7% | −37.7% | −34.2% | 176 | 40 |
+
+BTC buy-and-hold over the same window returned −4.5%.
+
+**Why it fails:** the model's out-of-sample edge per trade on crypto
+hourly bars averages −0.01% (median −0.01%, 99th percentile +0.15%,
+maximum +0.20%). No symbol cleared the validation gate on any of 1,200
+symbol-days, even at the equity cost of 0.20%. The gate did its job by
+blocking every trade. Without it, the engine loses 26%.
+
+**Takeaway:** the engine has no edge on crypto at this horizon. Hourly
+crypto moves are about the size of Robinhood's spread. A crypto lane
+would need a different horizon (4h or daily bars, where moves are large
+relative to cost) or a different signal, tested against the same bar.
+`config.crypto.enabled` stays false.
+
+## 9. Lead-lag round 2: every timeframe (2026-09-24)
+
+This round is the multi-timeframe extension pre-registered in
+`timeframes/PLAN.md` §2. It covers 1h, 4h and 1d bars; lags of 1–3 bars;
+and five pair families (crypto→crypto across all 210 ordered pairs of 15
+coins, crypto→crypto-linked equities, equities→crypto, sector leader→
+followers, and an own-momentum control). Daily data runs 2021–2024; the
+holdout is 2025→ and intraday from 2026-07-01, and it stayed unseen.
+
+**Result: nothing survived 31,380 tests.** The smallest q was 1.0; a
+single discovery needed p ≤ 3.2×10⁻⁶ and the best was 8×10⁻⁴.
+
+The deciding check was a set of shifted-signal placebos, which destroy
+any true lead-lag timing. They produced as many hits as the real grid
+(p < 0.05: 176–193 placebo vs 160 real). What the grid finds is noise.
+
+- **Crypto → crypto:** real 1h cross-coin structure exists but is far
+  smaller than the 0.40% round-trip cost. None of 6,300 1h tests is
+  net-positive, and 25 of 6,300 at 4h are.
+- **Near-misses:**
+  - NVDA → AMD/ARM/SOXL/SMH at 4h: a single 89-session semiconductor
+    rally, and SPY does as well as a signal.
+  - QQQ → SOXL/TQQQ and BTC → MSTR: the target's own momentum.
+- **One regime effect, not a candidate:** crypto reversed its prior-day
+  move after the US close in Feb–Jun 2026 only; it was about zero in
+  2024–25.
+- **Data flags:**
+  - SOXS daily is 10× off in March 2022, outside every replay window used
+    here.
+  - COIN's listing-day bar is bad.
+  - XRP-USD has a 905-day Coinbase gap.
+
+**Conclusion across both rounds (32,460 tests):** at the resolutions and
+costs this bot trades, cross-asset lead-lag offers no exploitable edge.
+The study is closed unless new data appears. Code and results are in
+`bot/research/leadlag/round2/`.
+
+## 10. Timeframe study: which bar length, per asset and per symbol (2026-09-24)
+
+This follows the pre-registered plan in `timeframes/PLAN.md` §1. The
+engine is unchanged; only bar length, the scaled label threshold and the
+training window vary. Selection was either point-in-time ("adaptive") or
+flagged as hindsight. Code: `tf_precompute.py`, `tf_evaluate.py`.
+
+### Equities (65 symbols, cash account, 0.20% round trip)
+
+**Common window 2026-05-18 → 09-22**, the span where 1h, 2h and 1d
+signals all exist:
+
+| Variant | Return | H1 | H2 | @2x cost | Max DD | Trades | P(loss 70d) |
+|---|---|---|---|---|---|---|---|
+| **Fixed 1h (live)** | **+25.8%** | +4.4% | +14.6% | +10.1% | −9.9% | 120 | 10% |
+| Fixed 2h | −12.8% | −10.0% | +2.3% | −17.2% | −24.0% | 72 | 86% |
+| Fixed 1d | +4.8% | +7.3% | +20.4% | +17.1% | −5.2% | 45 | 50% |
+| Adaptive per-symbol (point-in-time) | +3.0% | +7.1% | −4.0% | −3.7% | −13.8% | 87 | 43% |
+| Hindsight-best TF per symbol (upper bound) | +25.7% | +18.6% | +18.5% | +20.4% | −6.2% | 69 | 3% |
+
+Each half is simulated separately, starting from cash. The two halves
+therefore don't add up to the full-window run, and for fixed 1d the gap
+is large (+7.3% and +20.4% halves against +4.8% for the whole window).
+
+**Wider window 2026-02-20 → 09-22**, 1h vs 1d only:
+
+| Variant | Return | Max DD |
+|---|---|---|
+| Fixed 1h | +53.5% | −9.2% |
+| Fixed 1d | +37.0% | −5.6% |
+| Adaptive | +43.7% | −6.0% |
+| Hindsight | +51.5% | −8.4% |
+
+Fixed 1d over its full year (2025-09-23 → 2026-09-22): +14.4%, H1 −1.9%,
+−3.9% at 2x cost, max DD −17.1%.
+
+**Verdict: stay on 1h.** Nothing beats the live timeframe on return, which
+is adoption criterion 1. Even perfect hindsight about each symbol's best
+timeframe does not beat fixed 1h, so per-symbol timeframe selection has
+nothing to add for equities. Daily bars are more cost-robust but earn
+less, and over a full year they are weak.
+
+### Crypto (15 coins, 25% sleeve, 0.40% round trip)
+
+**Common window 2026-01-27 → 09-22:**
+
+| Variant | Return | H1 | H2 | @2x cost | Max DD | Trades | P(loss 70d) |
+|---|---|---|---|---|---|---|---|
+| Fixed 1h (5 coins) | 0.0% | — | — | — | — | 0 | — |
+| Fixed 4h | −6.0% | −4.4% | +2.3% | −5.8% | −9.9% | 44 | 66% |
+| Fixed 1d | +12.1% | −8.7% | +22.8% | +9.3% | −11.3% | 39 | 33% |
+| Adaptive per-symbol (point-in-time) | −0.4% | −2.4% | +7.7% | −3.3% | −10.3% | 53 | 51% |
+| Hindsight-best TF per coin (upper bound) | +32.4% | +2.4% | +29.3% | +23.3% | −8.0% | 44 | 13% |
+
+Full year: fixed 4h −0.5%; fixed 1d 0.0% with −28.0% max DD.
+
+**Verdict: the crypto lane stays off at every timeframe.** Longer bars let
+the validation gate pass trades, because the moves exceed the cost, but
+nothing is reliably profitable. The daily +12% is entirely the second
+half and fades to zero over a full year.
+
+The gap between hindsight (+32%) and honest point-in-time selection
+(−0.4%) measures exactly how much "best timeframe per coin" would have
+flattered a backtest chosen after the fact.
+
+### Combined with §7–9
+
+Lead-lag found no tradeable edge in 32,460 tests. The timeframe search
+found no timeframe, and no per-symbol choice of timeframe, that beats the
+live 1h engine on stocks. Crypto has no edge net of Robinhood's cost at 1h,
+4h or 1d. The live configuration is already the best one tested. Remaining
+levers are not in signal selection:
+
+- execution (resting stops instead of polled ones; lower fill latency);
+- capital (deposits);
+- continued live measurement against these backtests, which are
+  themselves an upper bound (§6).

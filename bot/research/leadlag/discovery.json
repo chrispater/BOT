@@ -1,0 +1,11 @@
+{
+  "total_tests": 648,
+  "tests_by_family": {"A": 216, "B": 144, "C": 120, "D": 72, "E": 96},
+  "correction": "Benjamini-Hochberg, FDR 10%, across all 648 tests; one-sided p (H1: mean net return > 0), using the larger of the per-trade and day-clustered p. Additional gates: >=30 trades, positive mean net return in both halves (split 2026-04-01), beat unconditional and SPY/QQQ-lead control.",
+  "min_p": 0.0072,
+  "min_q": 1.0,
+  "tests_with_p_below_0.05": 6,
+  "expected_under_null_at_0.05": 32.4,
+  "candidates": [],
+  "note": "No candidate survived. bars5.pkl is session-aligned 60-minute bars (09:30,10:30..15:30 ET), not 5-minute bars; the equity sample is 89 sessions (2026-02-23..2026-06-30). See discovery.md."
+}
