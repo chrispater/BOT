@@ -10,7 +10,7 @@
       "entry_confidence": 0.8,
       "high_water_mark": 20.885,
       "be_armed": false,
-      "cycles_held": 26,
+      "cycles_held": 27,
       "reversal_streak": 0
     },
     "IBIT": {
@@ -19,9 +19,9 @@
       "entry_confidence": 0.983,
       "high_water_mark": 49.015,
       "be_armed": false,
-      "cycles_held": 19,
+      "cycles_held": 20,
       "reversal_streak": 0
     }
   },
-  "last_run_utc": "2026-09-25T19:04:26Z"
+  "last_run_utc": "2026-09-25T19:33:52Z"
 }
