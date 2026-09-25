@@ -115,7 +115,10 @@ Write the executed orders to a fills file (format in `bot/tools/cycle_io.py`)
 and run `python -m bot.tools.cycle_io persist <fills.json>`; it applies the
 rules below. It and the commands above are pre-approved in
 `.claude/settings.json`, so an unattended cycle never waits on a permission
-prompt between the engine's decision and the orders.
+prompt between the engine's decision and the orders. Run each allowlisted
+command on its own: no pipes, redirects (`2>&1`), `grep`/`tail` filters or
+other tools chained into it, because any unlisted piece makes the whole
+command prompt again.
 
 - Merge `decisions.state_updates` into `bot/state.json`:
   `state.positions` = `decisions.state_updates.positions` (drop exited symbols;

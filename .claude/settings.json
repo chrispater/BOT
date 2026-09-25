@@ -31,7 +31,15 @@
       "Bash(python -m bot.tools.cycle_io:*)",
       "Bash(ls:*)",
       "Bash(TZ=America/New_York date:*)",
-      "Bash(cd /home/user/BOT)"
+      "Bash(cd /home/user/BOT)",
+      "Bash(tail:*)",
+      "Bash(head:*)",
+      "Bash(grep:*)",
+      "Edit(//tmp/claude-0/**)",
+      "Read(//tmp/claude-0/**)",
+      "Read(//root/.claude/projects/**)",
+      "PushNotification",
+      "ReadNotifications"
     ]
   }
 }
